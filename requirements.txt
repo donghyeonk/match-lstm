@@ -1,0 +1,4 @@
+numpy==1.15.0
+spacy==2.0.12
+stanford-corenlp
+torch==0.4.1
