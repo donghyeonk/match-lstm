@@ -1,6 +1,5 @@
-import corenlp
+import numpy as np
 import os
-import spacy
 import torch
 from torch.utils.data import Dataset
 
@@ -20,130 +19,118 @@ class SNLIData(object):
         # label num order
         self.label_dict = {'entailment': 0, 'contradiction': 1, 'neutral': 2}
 
-        os.environ['CORENLP_HOME'] = \
-            os.path.expanduser('~') + '/common/stanford-corenlp-full-2017-06-09'
+        self.word_set = set()
+        self.build_word_set()
+        print('#SNLI words', len(self.word_set))
 
-        # https://spacy.io/usage/facts-figures#benchmarks-models-english
-        # Run the following command on terminal
-        # python3 -m spacy download en_core_web_lg
-        self.nlp = spacy.load('en_core_web_lg',
-                              disable=['parser', 'tagger', 'ner'])
-        self.nlp.add_pipe(self.nlp.create_pipe('sentencizer'))
+        self.word_embeds = self.get_glove()
+        # print('word_count_dict size', len(self.word_count_dict))
 
-        self.word_dict = self.get_word_dict()
-        print('word_dict size', len(self.word_dict))
+        self.unseen_word_dict = dict()
+        self.unseen_word_count_dict = dict()
 
-        print('Loading GloVe .. {}'.format(self.config.glove_path))
-        self.word2vec = dict()
-        with open(self.config.glove_path, 'r', encoding='utf-8') as f:
-            for line in f:
-                cols = line.split(' ')
-                if cols[0] in self.word_dict:
-                    self.word2vec[cols[0]] = [float(l) for l in cols[1:]]
+        self.train_data, self.valid_data, self.test_data = self.get_total()
 
-        print('word2vec len', len(self.word2vec))
-
-        self.train_data, self.valid_data, self.test_data = self.get_data()
-
-    def get_word_dict(self):
-        word_dict = dict()
-
-        with corenlp.CoreNLPClient(annotators="tokenize ssplit".split()) as \
-                client:
-            with open(self.config.train_data_path, 'r', newline='',
-                      encoding='utf-8') as f:
+    def build_word_set(self):
+        def update_dict(data_path):
+            with open(data_path, 'r', newline='', encoding='utf-8') as f:
                 for idx, line in enumerate(f):
                     # skip the first line
                     if idx == 0:
                         continue
-
-                    cols = line.split('\t')
+                    cols = line.rstrip().split('\t')
                     # print(cols)
 
                     if cols[0] == '-':
                         continue
 
-                    # premise = cols[5]
-                    # premise_sentence = client.annotate(premise).sentence[0]
-                    # # assert corenlp.to_text(premise_sentence) == premise
-                    # if corenlp.to_text(premise_sentence) != premise:
-                    #     print(corenlp.to_text(premise_sentence), premise)
-                    # premise_words = [t.originalText
-                    #                  for t in premise_sentence.token]
-                    #
-                    # hypothesis = cols[6]
-                    # hypothesis_sentence = \
-                    #     client.annotate(hypothesis).sentence[0]
-                    # # assert corenlp.to_text(hypothesis_sentence) == hypothesis
-                    # if corenlp.to_text(hypothesis_sentence) != hypothesis:
-                    #     print(corenlp.to_text(hypothesis_sentence), hypothesis)
-                    # hypothesis_words = [t.originalText
-                    #                     for t in hypothesis_sentence.token]
+                    premise = [w for w in cols[1].split(' ')
+                               if w != '(' and w != ')']
+                    hypothesis = [w for w in cols[2].split(' ')
+                                  if w != '(' and w != ')']
+                    for w in premise+hypothesis:
+                        self.word_set.add(w)
 
-                    # for w in (premise_words + hypothesis_words):
-                    for w in (cols[5].split(' ') + cols[6].split(' ')):
-                        if w in word_dict:
-                            word_dict[w] += 1
-                        else:
-                            word_dict[w] = 1
+        update_dict(self.config.train_data_path)
+        update_dict(self.config.valid_data_path)
+        update_dict(self.config.test_data_path)
 
-                    if idx + 1 % 10000 == 0:
-                        print(idx + 1)
+    def get_glove(self):
+        print('Loading GloVe .. {}'.format(self.config.glove_path))
+        word2vec = dict()
+        with open(self.config.glove_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                cols = line.split(' ')
+                if cols[0] in self.word_set:
+                    word2vec[cols[0]] = [float(l) for l in cols[1:]]
+        print('SNLI - GloVe intersection size', len(word2vec),
+              '({:.1f}%)'.format(100*len(word2vec)/len(self.word_set)))
+        return word2vec
 
-        return word_dict
-
-    def get_data(self):
-        train_data = self.load(self.config.train_data_path, is_train=True)
+    def get_total(self):
+        train_data = self.load(self.config.train_data_path)
         valid_data = self.load(self.config.valid_data_path)
         test_data = self.load(self.config.test_data_path)
+
+        print('#unseen_words', len(self.unseen_word_dict))
+
+        # an approximation of the embedding of an unseen words
+        for w in self.unseen_word_dict:
+            if w in self.unseen_word_count_dict:
+                self.unseen_word_dict[w] /= self.unseen_word_count_dict[w]
+                self.word_embeds[w] = self.unseen_word_dict[w]
+            else:
+                print(w)
+
         return train_data, valid_data, test_data
 
-    def load(self, data_path, is_train=False):
+    def load(self, data_path):
         data = list()
+
+        def approximate_unseen(sentence):
+            sentence_len = len(sentence)
+            for w_idx, w in enumerate(sentence):
+                if w not in self.word_embeds:
+                    if w not in self.unseen_word_dict:
+                        self.unseen_word_dict[w] = \
+                            np.zeros(self.config.embedding_dim)
+                    for r in range(-self.config.window_size,
+                                   self.config.window_size + 1):
+                        if r != 0 and 0 <= w_idx + r < sentence_len \
+                                and sentence[w_idx + r] in self.word_embeds:
+                            self.unseen_word_dict[w] = \
+                                np.add(self.unseen_word_dict[w],
+                                       self.word_embeds[sentence[w_idx + r]])
+                            if w in self.unseen_word_count_dict:
+                                self.unseen_word_count_dict[w] += 1
+                            else:
+                                self.unseen_word_count_dict[w] = 1
+
         with open(data_path, 'r', newline='', encoding='utf-8') as f:
             for idx, line in enumerate(f):
-
                 # skip the first line
                 if idx == 0:
                     continue
 
-                cols = line.split('\t')
+                cols = line.rstrip().split('\t')
                 # print(cols)
 
                 if cols[0] == '-':
                     continue
 
+                premise = [w for w in cols[1].split(' ')
+                           if w != '(' and w != ')']
+                hypothesis = [w for w in cols[2].split(' ')
+                              if w != '(' and w != ')']
                 y = self.label_dict[cols[0]]
 
-                premise_doc = self.nlp(cols[5])
-                premise_words = [token.text for token in premise_doc]
-
-                hypothesis_doc = self.nlp(cols[6])
-                hypothesis_words = [token.text for token in hypothesis_doc]
-
-                if is_train:
-                    for w in (premise_words + hypothesis_words):
-                        idx = self.ngram2idx.get(w)
-                        if idx is None:
-                            idx = len(self.ngram2idx)
-                            self.ngram2idx[w] = idx
-                            self.idx2ngram[idx] = w
-
-                premise = [self.ngram2idx[w] if w in self.ngram2idx
-                           else self.ngram2idx['UNK']
-                           for w in premise_words]
-
-                hypothesis = [self.ngram2idx[w] if w in self.ngram2idx
-                              else self.ngram2idx['UNK']
-                              for w in hypothesis_words]
+                approximate_unseen(premise)
+                approximate_unseen(hypothesis)
 
                 data.append([premise, hypothesis, y])
 
-                if (idx + 1) % 10000 == 0:
+                if idx + 1 % 10000 == 0:
                     print(idx + 1)
-
-        if is_train:
-            print('dictionary size', len(self.ngram2idx))
 
         return data
 
@@ -213,6 +200,8 @@ if __name__ == '__main__':
     parser.add_argument('--glove_path', type=str,
                         default=home_dir + '/common/glove/glove.840B.300d.txt')
     parser.add_argument('--pickle_path', type=str, default='./data/snli.pkl')
+    parser.add_argument('--embedding_dim', type=int, default=300)
+    parser.add_argument('--window_size', type=int, default=4)
     parser.add_argument('--seed', type=int, default=2018)
     parser.add_argument('--num_classes', type=int, default=3)
     args = parser.parse_args()
