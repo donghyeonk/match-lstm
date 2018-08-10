@@ -7,29 +7,31 @@ from torch.utils.data import Dataset
 class SNLIData(object):
     def __init__(self, config):
         self.config = config
-        self.num_classes = config.num_classes
 
-        self.ngram2idx = dict()
-        self.idx2ngram = dict()
-        self.ngram2idx['PAD'] = 0
-        self.idx2ngram[0] = 'PAD'
-        self.ngram2idx['UNK'] = 1
-        self.idx2ngram[1] = 'UNK'
+        self.word2idx = dict()
+        self.idx2word = dict()
+        self.null_word = '<NULL>'
+        self.word2idx[self.null_word] = 0
+        self.word2idx[self.word2idx[self.null_word]] = self.null_word
 
         # label num order
         self.label_dict = {'entailment': 0, 'contradiction': 1, 'neutral': 2}
 
-        self.word_set = set()
         self.build_word_set()
-        print('#SNLI words', len(self.word_set))
+        print('#SNLI words', len(self.word2idx))
 
         self.word_embeds = self.get_glove()
-        # print('word_count_dict size', len(self.word_count_dict))
 
         self.unseen_word_dict = dict()
         self.unseen_word_count_dict = dict()
 
-        self.train_data, self.valid_data, self.test_data = self.get_total()
+        self.train_data, self.valid_data, self.test_data = self.get_split_data()
+
+        assert len(self.train_data) == 549367, len(self.train_data)
+        assert len(self.valid_data) == 9842, len(self.valid_data)
+        assert len(self.test_data) == 9824, len(self.test_data)
+
+        print(len(self.word_embeds))
 
     def build_word_set(self):
         def update_dict(data_path):
@@ -49,7 +51,18 @@ class SNLIData(object):
                     hypothesis = [w for w in cols[2].split(' ')
                                   if w != '(' and w != ')']
                     for w in premise+hypothesis:
-                        self.word_set.add(w)
+                        if w not in self.word2idx:
+                            idx = len(self.word2idx)
+                            self.word2idx[w] = idx
+                            self.idx2word[idx] = w
+
+                    # for uw in ['https://www.youtube.com/watch?v=tXrsvC25GH8',
+                    #            'cantunderstans',
+                    #            'http://fresnosmilemakeovers.com/',
+                    #            'motocyckes',
+                    #            'arefun']:
+                    #     if uw in premise or uw in hypothesis:
+                    #         print(data_path, cols[8], premise, hypothesis)
 
         update_dict(self.config.train_data_path)
         update_dict(self.config.valid_data_path)
@@ -61,13 +74,13 @@ class SNLIData(object):
         with open(self.config.glove_path, 'r', encoding='utf-8') as f:
             for line in f:
                 cols = line.split(' ')
-                if cols[0] in self.word_set:
+                if cols[0] in self.word2idx:
                     word2vec[cols[0]] = [float(l) for l in cols[1:]]
         print('SNLI - GloVe intersection size', len(word2vec),
-              '({:.1f}%)'.format(100*len(word2vec)/len(self.word_set)))
+              '({:.1f}%)'.format(100*len(word2vec)/len(self.word2idx)))
         return word2vec
 
-    def get_total(self):
+    def get_split_data(self):
         train_data = self.load(self.config.train_data_path)
         valid_data = self.load(self.config.valid_data_path)
         test_data = self.load(self.config.test_data_path)
@@ -79,8 +92,8 @@ class SNLIData(object):
             if w in self.unseen_word_count_dict:
                 self.unseen_word_dict[w] /= self.unseen_word_count_dict[w]
                 self.word_embeds[w] = self.unseen_word_dict[w]
-            else:
-                print(w)
+            # else:
+            #     print(w)
 
         return train_data, valid_data, test_data
 
@@ -127,9 +140,12 @@ class SNLIData(object):
                 approximate_unseen(premise)
                 approximate_unseen(hypothesis)
 
-                data.append([premise, hypothesis, y])
+                premise_idx = [self.word2idx[w] for w in premise]
+                hypothesis_idx = [self.word2idx[w] for w in hypothesis]
 
-                if idx + 1 % 10000 == 0:
+                data.append([premise_idx, hypothesis_idx, y])
+
+                if (idx + 1) % 100000 == 0:
                     print(idx + 1)
 
         return data
@@ -214,9 +230,9 @@ if __name__ == '__main__':
             snlidata = pickle.load(f_pkl)
     else:
         snlidata = SNLIData(args)
-    #     with open(args.pickle_path, 'wb') as f_pkl:
-    #         pickle.dump(snlidata, f_pkl)
-    #
+        # with open(args.pickle_path, 'wb') as f_pkl:
+        #     pickle.dump(snlidata, f_pkl)
+
     # tr_loader, _, _ = snlidata.get_dataloaders(batch_size=256, num_workers=4)
     # # print(len(tr_loader.dataset))
     # for batch_idx, batch in enumerate(tr_loader):
