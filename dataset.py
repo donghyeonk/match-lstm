@@ -14,14 +14,19 @@ class SNLIData(object):
         self.word2idx = dict()
         self.idx2word = dict()
 
+        self.pad = '<PAD>'
+        self.word2idx[self.pad] = 0
+        self.idx2word[0] = self.pad
+
         self.null_word = '<NULL>'
-        self.word2idx[self.null_word] = 0
-        self.idx2word[0] = self.null_word
+        self.word2idx[self.null_word] = 1
+        self.idx2word[1] = self.null_word
 
         self.build_word_set()
         print('#SNLI words', len(self.word2idx))
 
         self.word_embeds = self.get_glove()
+        self.word_embeds[self.pad] = [0.] * self.config.embedding_dim
         self.word_embeds[self.null_word] = [0.] * self.config.embedding_dim
         print('SNLI - GloVe intersection size', len(self.word_embeds),
               '({:.1f}%)'.format(100*len(self.word_embeds)/len(self.word2idx)))
@@ -32,19 +37,23 @@ class SNLIData(object):
         self.max_len = 0
 
         self.train_data, self.valid_data, self.test_data = self.get_split_data()
+        assert len(self.train_data) == 549367
+        assert len(self.valid_data) == 9842
+        assert len(self.test_data) == 9824
 
         print('train', len(self.train_data))
         print('dev  ', len(self.valid_data))
         print('test ', len(self.test_data))
 
-        assert len(self.train_data) == 549367
-        assert len(self.valid_data) == 9842
-        assert len(self.test_data) == 9824
-
         print('#word_embeddings', len(self.word_embeds))
         print('max_len', self.max_len)
 
-        assert len(self.word_embeds) == len(self.word2idx)
+        self.word2vec = np.zeros((len(self.word_embeds),
+                                  self.config.embedding_dim))
+        for idx in self.idx2word:
+            self.word2vec[idx] = self.word_embeds[self.idx2word[idx]]
+
+        assert len(self.word_embeds) == len(self.word2idx) == len(self.word2vec)
 
     def build_word_set(self):
         def update_dict(data_path):
@@ -205,12 +214,26 @@ class SNLIData(object):
         )
         return train_loader, valid_loader, test_loader
 
-    @staticmethod
-    def batchify(b):
+    def batchify(self, b):
+        pad_idx = self.word2idx[self.pad]
+
         premise = [e[0] for e in b]
+        premise_len = [len(e[0]) for e in b]
+        premise_len_max = max(premise_len)
+        premise = torch.tensor([p + [pad_idx] * (premise_len_max - len(p))
+                                for p in premise], dtype=torch.int64)
+        premise_len = torch.tensor(premise_len, dtype=torch.int64)
+
         hypothesis = [e[1] for e in b]
-        y = [e[2] for e in b]
-        return premise, hypothesis, y
+        hypothesis_len = [len(e[1]) for e in b]
+        hypothesis_len_max = max(hypothesis_len)
+        hypothesis = torch.tensor([h + [pad_idx] * (hypothesis_len_max - len(h))
+                                   for h in hypothesis], dtype=torch.int64)
+        hypothesis_len = torch.tensor(hypothesis_len, dtype=torch.int64)
+
+        y = torch.tensor([e[2] for e in b], dtype=torch.int64)
+
+        return (premise, premise_len), (hypothesis, hypothesis_len), y
 
 
 class SNLIDataset(Dataset):
@@ -263,5 +286,5 @@ if __name__ == '__main__':
                                  pin_memory=torch.cuda.is_available())
     # print(len(tr_loader.dataset))
     for batch_idx, batch in enumerate(tr_loader):
-        if (batch_idx + 1) % 100 == 0 or (batch_idx + 1) == len(tr_loader):
+        if (batch_idx + 1) % 1000 == 0 or (batch_idx + 1) == len(tr_loader):
             print(datetime.now(), 'batch', batch_idx + 1)
