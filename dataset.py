@@ -8,22 +8,28 @@ class SNLIData(object):
     def __init__(self, config):
         self.config = config
 
-        self.word2idx = dict()
-        self.idx2word = dict()
-        self.null_word = '<NULL>'
-        self.word2idx[self.null_word] = 0
-        self.word2idx[self.word2idx[self.null_word]] = self.null_word
-
         # label num order
         self.label_dict = {'entailment': 0, 'contradiction': 1, 'neutral': 2}
+
+        self.word2idx = dict()
+        self.idx2word = dict()
+
+        self.null_word = '<NULL>'
+        self.word2idx[self.null_word] = 0
+        self.idx2word[0] = self.null_word
 
         self.build_word_set()
         print('#SNLI words', len(self.word2idx))
 
         self.word_embeds = self.get_glove()
+        self.word_embeds[self.null_word] = [0.] * self.config.embedding_dim
+        print('SNLI - GloVe intersection size', len(self.word_embeds),
+              '({:.1f}%)'.format(100*len(self.word_embeds)/len(self.word2idx)))
 
         self.unseen_word_dict = dict()
         self.unseen_word_count_dict = dict()
+
+        self.max_len = 0
 
         self.train_data, self.valid_data, self.test_data = self.get_split_data()
 
@@ -31,7 +37,10 @@ class SNLIData(object):
         assert len(self.valid_data) == 9842, len(self.valid_data)
         assert len(self.test_data) == 9824, len(self.test_data)
 
-        print(len(self.word_embeds))
+        print('#word_embeddings', len(self.word_embeds))
+        print('max_len', self.max_len)
+
+        assert len(self.word_embeds) == len(self.word2idx)
 
     def build_word_set(self):
         def update_dict(data_path):
@@ -76,8 +85,6 @@ class SNLIData(object):
                 cols = line.split(' ')
                 if cols[0] in self.word2idx:
                     word2vec[cols[0]] = [float(l) for l in cols[1:]]
-        print('SNLI - GloVe intersection size', len(word2vec),
-              '({:.1f}%)'.format(100*len(word2vec)/len(self.word2idx)))
         return word2vec
 
     def get_split_data(self):
@@ -87,18 +94,20 @@ class SNLIData(object):
 
         print('#unseen_words', len(self.unseen_word_dict))
 
-        # an approximation of the embedding of an unseen words
+        # an approximation of the embedding of an unseen word
         for w in self.unseen_word_dict:
             if w in self.unseen_word_count_dict:
                 self.unseen_word_dict[w] /= self.unseen_word_count_dict[w]
-                self.word_embeds[w] = self.unseen_word_dict[w]
-            # else:
-            #     print(w)
+            else:
+                print('all-zero unseen word', w, sum(self.unseen_word_dict[w]))
+            self.word_embeds[w] = self.unseen_word_dict[w]
 
         return train_data, valid_data, test_data
 
     def load(self, data_path):
         data = list()
+
+        # null_word_idx = self.word2idx[self.null_word]
 
         def approximate_unseen(sentence):
             sentence_len = len(sentence)
@@ -143,21 +152,35 @@ class SNLIData(object):
                 premise_idx = [self.word2idx[w] for w in premise]
                 hypothesis_idx = [self.word2idx[w] for w in hypothesis]
 
+                # hypo_len = len(hypothesis_idx)
+                # while len(premise_idx) < hypo_len:
+                #     premise_idx.append(null_word_idx)
+                #
+                # if len(premise_idx) > len(hypo thesis_idx):
+                #     print(premise, hypothesis)
+
                 data.append([premise_idx, hypothesis_idx, y])
 
-                if (idx + 1) % 100000 == 0:
-                    print(idx + 1)
+                if self.max_len < len(premise_idx):
+                    self.max_len = len(premise_idx)
+
+                if self.max_len < len(hypothesis_idx):
+                    self.max_len = len(hypothesis_idx)
+
+                # if (idx + 1) % 100000 == 0:
+                #     print(idx + 1)
 
         return data
 
-    def get_dataloaders(self, batch_size=32, shuffle=True, num_workers=4):
+    def get_dataloaders(self, batch_size=32, shuffle=True, num_workers=4,
+                        pin_memory=True):
         train_loader = torch.utils.data.DataLoader(
             SNLIDataset(self.train_data),
             shuffle=shuffle,
             batch_size=batch_size,
             num_workers=num_workers,
             collate_fn=self.batchify,
-            pin_memory=True
+            pin_memory=pin_memory
         )
 
         valid_loader = torch.utils.data.DataLoader(
@@ -165,7 +188,7 @@ class SNLIData(object):
             batch_size=batch_size,
             num_workers=num_workers,
             collate_fn=self.batchify,
-            pin_memory=True
+            pin_memory=pin_memory
         )
 
         test_loader = torch.utils.data.DataLoader(
@@ -173,7 +196,7 @@ class SNLIData(object):
             batch_size=batch_size,
             num_workers=num_workers,
             collate_fn=self.batchify,
-            pin_memory=True
+            pin_memory=pin_memory
         )
         return train_loader, valid_loader, test_loader
 
@@ -201,7 +224,7 @@ class SNLIDataset(Dataset):
 
 if __name__ == '__main__':
     import argparse
-    from datetime import datetime
+    # from datetime import datetime
     import pickle
     import pprint
 
