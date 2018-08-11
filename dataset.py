@@ -33,9 +33,13 @@ class SNLIData(object):
 
         self.train_data, self.valid_data, self.test_data = self.get_split_data()
 
-        assert len(self.train_data) == 549367, len(self.train_data)
-        assert len(self.valid_data) == 9842, len(self.valid_data)
-        assert len(self.test_data) == 9824, len(self.test_data)
+        print('train', len(self.train_data))
+        print('dev  ', len(self.valid_data))
+        print('test ', len(self.test_data))
+
+        assert len(self.train_data) == 549367
+        assert len(self.valid_data) == 9842
+        assert len(self.test_data) == 9824
 
         print('#word_embeddings', len(self.word_embeds))
         print('max_len', self.max_len)
@@ -99,7 +103,7 @@ class SNLIData(object):
             if w in self.unseen_word_count_dict:
                 self.unseen_word_dict[w] /= self.unseen_word_count_dict[w]
             else:
-                print('all-zero unseen word', w, sum(self.unseen_word_dict[w]))
+                print('all-zero unseen word', w)
             self.word_embeds[w] = self.unseen_word_dict[w]
 
         return train_data, valid_data, test_data
@@ -107,7 +111,7 @@ class SNLIData(object):
     def load(self, data_path):
         data = list()
 
-        # null_word_idx = self.word2idx[self.null_word]
+        null_word_idx = self.word2idx[self.null_word]
 
         def approximate_unseen(sentence):
             sentence_len = len(sentence)
@@ -150,6 +154,7 @@ class SNLIData(object):
                 approximate_unseen(hypothesis)
 
                 premise_idx = [self.word2idx[w] for w in premise]
+                premise_idx.append(null_word_idx)  # NULL
                 hypothesis_idx = [self.word2idx[w] for w in hypothesis]
 
                 # hypo_len = len(hypothesis_idx)
@@ -161,8 +166,8 @@ class SNLIData(object):
 
                 data.append([premise_idx, hypothesis_idx, y])
 
-                if self.max_len < len(premise_idx):
-                    self.max_len = len(premise_idx)
+                if self.max_len < len(premise_idx) - 1:
+                    self.max_len = len(premise_idx) - 1
 
                 if self.max_len < len(hypothesis_idx):
                     self.max_len = len(hypothesis_idx)
@@ -202,13 +207,10 @@ class SNLIData(object):
 
     @staticmethod
     def batchify(b):
-        x = [e[0] for e in b]
+        premise = [e[0] for e in b]
+        hypothesis = [e[1] for e in b]
         y = [e[2] for e in b]
-
-        x = torch.tensor(x, dtype=torch.int64)
-        y = torch.tensor(y, dtype=torch.int64)
-
-        return x, y
+        return premise, hypothesis, y
 
 
 class SNLIDataset(Dataset):
@@ -224,7 +226,7 @@ class SNLIDataset(Dataset):
 
 if __name__ == '__main__':
     import argparse
-    # from datetime import datetime
+    from datetime import datetime
     import pickle
     import pprint
 
@@ -241,23 +243,25 @@ if __name__ == '__main__':
     parser.add_argument('--pickle_path', type=str, default='./data/snli.pkl')
     parser.add_argument('--embedding_dim', type=int, default=300)
     parser.add_argument('--window_size', type=int, default=4)
-    parser.add_argument('--seed', type=int, default=2018)
-    parser.add_argument('--num_classes', type=int, default=3)
+    parser.add_argument('--overwrite', type=int, default=1)
     args = parser.parse_args()
 
     pprint.PrettyPrinter().pprint(args.__dict__)
 
     import os
-    if os.path.exists(args.pickle_path):
+    if os.path.exists(args.pickle_path) and args.overwrite == 0:
+        print('Found', args.pickle_path)
         with open(args.pickle_path, 'rb') as f_pkl:
             snlidata = pickle.load(f_pkl)
     else:
         snlidata = SNLIData(args)
-        # with open(args.pickle_path, 'wb') as f_pkl:
-        #     pickle.dump(snlidata, f_pkl)
+        with open(args.pickle_path, 'wb') as f_pkl:
+            pickle.dump(snlidata, f_pkl)
 
-    # tr_loader, _, _ = snlidata.get_dataloaders(batch_size=256, num_workers=4)
-    # # print(len(tr_loader.dataset))
-    # for batch_idx, batch in enumerate(tr_loader):
-    #     if (batch_idx + 1) % 100 == 0 or (batch_idx + 1) == len(tr_loader):
-    #         print(datetime.now(), 'batch', batch_idx + 1)
+    tr_loader, _, _ = \
+        snlidata.get_dataloaders(batch_size=256, num_workers=4,
+                                 pin_memory=torch.cuda.is_available())
+    # print(len(tr_loader.dataset))
+    for batch_idx, batch in enumerate(tr_loader):
+        if (batch_idx + 1) % 100 == 0 or (batch_idx + 1) == len(tr_loader):
+            print(datetime.now(), 'batch', batch_idx + 1)
