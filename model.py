@@ -1,8 +1,6 @@
-# import numpy as np
 import torch
 from torch import nn
-# import torch.nn.functional as F
-from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
+import torch.nn.functional as F
 
 
 class MatchLSTM(nn.Module):
@@ -10,9 +8,13 @@ class MatchLSTM(nn.Module):
         super(MatchLSTM, self).__init__()
         self.config = config
 
-        self.word_embed = nn.Embedding(len(word2vec), len(word2vec[0]))
+        self.word_embed = nn.Embedding(len(word2vec), len(word2vec[0]),
+                                       padding_idx=0)
         self.word_embed.weight.data.copy_(torch.from_numpy(word2vec))
         self.word_embed.weight.requires_grad = False
+
+        self.w_e = torch.zeros(config.hidden_size)
+        nn.init.uniform_(self.w_e)
 
         self.linear_s = nn.Linear(in_features=config.hidden_size,
                                   out_features=config.hidden_size, bias=False)
@@ -20,43 +22,78 @@ class MatchLSTM(nn.Module):
                                   out_features=config.hidden_size, bias=False)
         self.linear_m = nn.Linear(in_features=config.hidden_size,
                                   out_features=config.hidden_size, bias=False)
+        self.fc = nn.Linear(in_features=config.hidden_size,
+                            out_features=config.num_classes)
+        self.init_linears()
 
-        self.batch_first = True
+        self.lstm_prem = nn.LSTMCell(config.input_size, config.hidden_size)
+        self.lstm_hypo = nn.LSTMCell(config.input_size, config.hidden_size)
+        self.lstm_match = nn.LSTMCell(2*config.hidden_size, config.hidden_size)
 
-        # premise
-        self.lstm_s = nn.LSTM(config.input_size, config.hidden_size,
-                              config.num_layers, batch_first=self.batch_first)
-        # hypothesis
-        self.lstm_t = nn.LSTM(config.input_size, config.hidden_size,
-                              config.num_layers, batch_first=self.batch_first)
-
-        # attention
-        self.lstm_m = nn.LSTM(2 * config.hidden_size, config.hidden_size,
-                              config.num_layers, batch_first=self.batch_first)
+    def init_linears(self):
+        nn.init.xavier_uniform_(self.linear_s.weight)
+        nn.init.xavier_uniform_(self.linear_t.weight)
+        nn.init.xavier_uniform_(self.linear_m.weight)
+        nn.init.xavier_uniform_(self.fc.weight)
+        nn.init.uniform_(self.fc.bias)
 
     def forward(self, premise_tpl, hypothesis_tpl):
         premise, premise_len = premise_tpl
+        hypothesis, hypothesis_len = hypothesis_tpl
+
+        # (batch_size, max_len) -> (batch_size, max_len, embed_dim)
         premise_embed = self.word_embed(premise)
-        premise_len, premise_perm_idxes = \
-            premise_len.sort(dim=0, descending=True)
-        premise_embed = premise_embed[premise_perm_idxes]
-        _, premise_idx_unsort = \
-            torch.sort(premise_perm_idxes, dim=0, descending=False)
-        premise_input = \
-            pack_padded_sequence(premise_embed, premise_len,
-                                 batch_first=self.batch_first)
-        premise_output, (h_s, c_s) = self.lstm_s(premise_input)
+        hypothesis_embed = self.word_embed(hypothesis)
 
-        premise_output, _ = pad_packed_sequence(premise_output,
-                                                batch_first=self.batch_first)
-        premise_output = premise_output[premise_idx_unsort]
-        premise_len = premise_len[premise_idx_unsort]
+        batch_size = premise_embed.size(0)
 
-        # self.linear_s(h_s)
+        outputs = torch.zeros((batch_size, self.config.num_classes))
 
-        # TODO h_t
-        # TODO h_m
-        # TODO e, a
+        for i, (prem_emb, prem_len, hypo_emb, hypo_len) in \
+                enumerate(zip(premise_embed, premise_len,
+                              hypothesis_embed, hypothesis_len)):
+
+            h_s, _ = self.lstm_prem(prem_emb[:prem_len.item()])
+
+            # h_m_{k-1}
+            h_m_km1 = torch.zeros(self.config.hidden_size)
+            h_m_k = None
+
+            h_t, _ = self.lstm_hypo(hypo_emb[:hypo_len.item()])
+
+            for k in range(hypo_len.item()):
+                h_t_k = h_t[k]
+
+                # Equation (6)
+                e_kj_tensor = torch.zeros(prem_len.item())
+                for j in range(prem_len.item()):
+                    e_kj = torch.dot(self.w_e,
+                                     torch.tanh(self.linear_s(h_s[j]) +
+                                                self.linear_t(h_t_k) +
+                                                self.linear_m(h_m_km1)))
+                    e_kj_tensor[j] = e_kj
+
+                # Equation (3)
+                alpha_kj = F.softmax(e_kj_tensor, dim=0)
+
+                # Equation (2)
+                a_k = torch.zeros(self.config.hidden_size)
+                for j in range(prem_len.item()):
+                    alpha_h = alpha_kj[j] * h_s[j]
+                    for idx in range(self.config.hidden_size):
+                        a_k[idx] += alpha_h[idx]  # element-wise sum
+
+                # Equation (7)
+                m_k = torch.cat((a_k, h_t_k), 0)
+
+                # Equation (8)
+                h_m_k, _ = self.lstm_match(torch.unsqueeze(m_k, 0))
+
+                h_m_km1 = h_m_k[0]
+
+            outputs[i] = self.fc(h_m_k[0])
+
+        return F.softmax(outputs, dim=1)
 
     def get_req_grad_params(self, debug=False):
         print('model parameters: ', end='')

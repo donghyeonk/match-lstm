@@ -12,6 +12,7 @@ from model import MatchLSTM
 parser = argparse.ArgumentParser()
 parser.add_argument('--seed', type=int, default=2018)
 parser.add_argument('--data_path', type=str, default='./data/snli.pkl')
+parser.add_argument('--num_classes', type=int, default=3)
 
 parser.add_argument('--lr', type=float, default=1e-3)
 parser.add_argument('--grad_max_norm', type=float, default=0)
