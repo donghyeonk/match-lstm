@@ -54,12 +54,11 @@ class MatchLSTM(nn.Module):
                               hypothesis_embed, hypothesis_len)):
 
             h_s, _ = self.lstm_prem(prem_emb[:prem_len.item()])
+            h_t, _ = self.lstm_hypo(hypo_emb[:hypo_len.item()])
 
             # h_m_{k-1}
             h_m_km1 = torch.zeros(self.config.hidden_size)
             h_m_k = None
-
-            h_t, _ = self.lstm_hypo(hypo_emb[:hypo_len.item()])
 
             for k in range(hypo_len.item()):
                 h_t_k = h_t[k]
@@ -93,7 +92,7 @@ class MatchLSTM(nn.Module):
 
             outputs[i] = self.fc(h_m_k[0])
 
-        return F.softmax(outputs, dim=1)
+        return F.log_softmax(outputs, dim=1)
 
     def get_req_grad_params(self, debug=False):
         print('model parameters: ', end='')
