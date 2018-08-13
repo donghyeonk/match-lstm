@@ -49,8 +49,6 @@ class MatchLSTM(nn.Module):
         prem_max_len = premise.size(0)
         batch_size = premise.size(1)
 
-        # TODO batch
-
         # premise
         h_s = torch.zeros((prem_max_len, batch_size, self.config.hidden_size),
                           device=self.device)
@@ -70,70 +68,38 @@ class MatchLSTM(nn.Module):
             # TODO masking
 
             # Equation (6)
-            e_kj_tensor = torch.zeros((prem_max_len, batch_size),
-                                      device=self.device)
+            e_kj = torch.zeros((prem_max_len, batch_size), device=self.device)
             for j in range(prem_max_len):
-                e_kj = torch.matmul(self.w_e,
-                                    torch.tanh(self.linear_s(h_s[j]) +
-                                               self.linear_t(h_t_k) +
-                                               self.linear_m(h_m_km1)))
-                e_kj_tensor[j] = e_kj
+                for l in range(batch_size):
+                    e_kj[j][l] = \
+                        torch.dot(self.w_e,
+                                  torch.tanh(self.linear_s(h_s[j][l]) +
+                                             self.linear_t(h_t_k[l]) +
+                                             self.linear_m(h_m_km1[l])))
 
             # Equation (3)
-            alpha_kj = F.softmax(e_kj_tensor, dim=0)
+            # (max_len, batch_size)
+            alpha_kj = F.softmax(e_kj, dim=0)
 
-        outputs = torch.zeros((batch_size, self.config.num_classes),
+            # Equation (2)
+            # (batch_size, hidden_size)
+            a_k = torch.zeros((batch_size, self.config.hidden_size),
                               device=self.device)
+            for l in range(batch_size):
+                for j in range(prem_max_len):
+                    # alpha_h
+                    a_k[l] += alpha_kj[j][l] * h_s[j][l]
 
-        for i, (prem_emb, prem_len, hypo_emb, hypo_len) in \
-                enumerate(zip(premise, premise_len,
-                              hypothesis, hypothesis_len)):
+            # Equation (7)
+            # (batch_size, 2 * hidden_size)
+            m_k = torch.cat((a_k, h_t_k), 1)
 
-            # premise
-            h_s = torch.zeros((prem_len.item(), self.config.hidden_size),
-                              device=self.device)
-            for j, prem_j in enumerate(prem_emb[:prem_len.item()]):
-                h_s_j, _ = self.lstm_prem(torch.unsqueeze(prem_j, 0))
-                h_s[j] = h_s_j[0]
+            # Equation (8)
+            h_m_k, _ = self.lstm_match(m_k)
 
-            # h_m_{k-1}
-            h_m_km1 = torch.zeros(self.config.hidden_size, device=self.device)
-            h_m_k = None
+            h_m_km1 = h_m_k
 
-            # hypothesis and matchLSTM
-            for k, hypo_k in enumerate(hypo_emb[:hypo_len.item()]):
-                h_t_k, _ = self.lstm_hypo(torch.unsqueeze(hypo_k, 0))
-
-                # Equation (6)
-                e_kj_tensor = torch.zeros(prem_len.item(), device=self.device)
-                for j in range(prem_len.item()):
-                    e_kj = torch.dot(self.w_e,
-                                     torch.tanh(self.linear_s(h_s[j]) +
-                                                self.linear_t(h_t_k[0]) +
-                                                self.linear_m(h_m_km1)))
-                    e_kj_tensor[j] = e_kj
-
-                # Equation (3)
-                alpha_kj = F.softmax(e_kj_tensor, dim=0)
-
-                # Equation (2)
-                a_k = torch.zeros(self.config.hidden_size, device=self.device)
-                for j in range(prem_len.item()):
-                    alpha_h = alpha_kj[j] * h_s[j]
-                    for idx in range(self.config.hidden_size):
-                        a_k[idx] += alpha_h[idx]  # element-wise sum
-
-                # Equation (7)
-                m_k = torch.cat((a_k, h_t_k[0]), 0)
-
-                # Equation (8)
-                h_m_k, _ = self.lstm_match(torch.unsqueeze(m_k, 0))
-
-                h_m_km1 = h_m_k[0]
-
-            outputs[i] = self.fc(h_m_k[0])
-
-        return outputs
+        return self.fc(h_m_k)
 
     def get_req_grad_params(self, debug=False):
         print('#parameters: ', end='')
