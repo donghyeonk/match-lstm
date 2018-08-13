@@ -1,5 +1,4 @@
 import numpy as np
-import os
 import torch
 from torch.utils.data import Dataset
 
@@ -34,7 +33,8 @@ class SNLIData(object):
         self.unseen_word_dict = dict()
         self.unseen_word_count_dict = dict()
 
-        self.max_len = 0
+        self.premise_max_len = 0
+        self.hypothesis_max_len = 0
 
         self.train_data, self.valid_data, self.test_data = self.get_split_data()
         assert len(self.train_data) == 549367
@@ -46,7 +46,8 @@ class SNLIData(object):
         print('test ', len(self.test_data))
 
         print('#word_embeddings', len(self.word_embeds))
-        print('max_len', self.max_len)
+        print('premise_max_len', self.premise_max_len)
+        print('hypothesis_max_len', self.hypothesis_max_len)
 
         self.word2vec = np.zeros((len(self.word_embeds),
                                   self.config.embedding_dim))
@@ -54,6 +55,9 @@ class SNLIData(object):
             self.word2vec[idx] = self.word_embeds[self.idx2word[idx]]
 
         assert len(self.word_embeds) == len(self.word2idx) == len(self.word2vec)
+
+        assert self.premise_max_len == config.premise_max_len
+        assert self.hypothesis_max_len == config.hypothesis_max_len
 
     def build_word_set(self):
         def update_dict(data_path):
@@ -121,6 +125,7 @@ class SNLIData(object):
         data = list()
 
         null_word_idx = self.word2idx[self.null_word]
+        pad_idx = self.word2idx[self.pad]
 
         def approximate_unseen(sentence):
             sentence_len = len(sentence)
@@ -166,20 +171,26 @@ class SNLIData(object):
                 premise_idx.append(null_word_idx)  # NULL
                 hypothesis_idx = [self.word2idx[w] for w in hypothesis]
 
-                # hypo_len = len(hypothesis_idx)
-                # while len(premise_idx) < hypo_len:
-                #     premise_idx.append(null_word_idx)
-                #
-                # if len(premise_idx) > len(hypo thesis_idx):
-                #     print(premise, hypothesis)
+                premise_len = len(premise_idx)
+                hypothesis_len = len(hypothesis_idx)
 
-                data.append([premise_idx, hypothesis_idx, y])
+                # padding
+                while len(premise_idx) < self.config.premise_max_len:
+                    premise_idx.append(pad_idx)
+                assert len(premise_idx) == self.config.premise_max_len
+                while len(hypothesis_idx) < self.config.hypothesis_max_len:
+                    hypothesis_idx.append(pad_idx)
+                assert len(hypothesis_idx) == self.config.hypothesis_max_len
 
-                if self.max_len < len(premise_idx) - 1:
-                    self.max_len = len(premise_idx) - 1
+                data.append([premise_idx, premise_len,
+                             hypothesis_idx, hypothesis_len,
+                             y])
 
-                if self.max_len < len(hypothesis_idx):
-                    self.max_len = len(hypothesis_idx)
+                if self.premise_max_len < premise_len:
+                    self.premise_max_len = premise_len
+
+                if self.hypothesis_max_len < hypothesis_len:
+                    self.hypothesis_max_len = hypothesis_len
 
                 # if (idx + 1) % 100000 == 0:
                 #     print(idx + 1)
@@ -193,7 +204,7 @@ class SNLIData(object):
             shuffle=shuffle,
             batch_size=batch_size,
             num_workers=num_workers,
-            collate_fn=self.batchify,
+            # collate_fn=self.batchify,
             pin_memory=pin_memory
         )
 
@@ -201,7 +212,7 @@ class SNLIData(object):
             SNLIDataset(self.valid_data),
             batch_size=batch_size,
             num_workers=num_workers,
-            collate_fn=self.batchify,
+            # collate_fn=self.batchify,
             pin_memory=pin_memory
         )
 
@@ -209,7 +220,7 @@ class SNLIData(object):
             SNLIDataset(self.test_data),
             batch_size=batch_size,
             num_workers=num_workers,
-            collate_fn=self.batchify,
+            # collate_fn=self.batchify,
             pin_memory=pin_memory
         )
         return train_loader, valid_loader, test_loader
@@ -218,20 +229,20 @@ class SNLIData(object):
         pad_idx = self.word2idx[self.pad]
 
         premise = [e[0] for e in b]
-        premise_len = [len(e[0]) for e in b]
+        premise_len = [e[1] for e in b]
         premise_len_max = max(premise_len)
         premise = torch.tensor([p + [pad_idx] * (premise_len_max - len(p))
                                 for p in premise], dtype=torch.int64)
         premise_len = torch.tensor(premise_len, dtype=torch.int64)
 
-        hypothesis = [e[1] for e in b]
-        hypothesis_len = [len(e[1]) for e in b]
+        hypothesis = [e[2] for e in b]
+        hypothesis_len = [e[3] for e in b]
         hypothesis_len_max = max(hypothesis_len)
         hypothesis = torch.tensor([h + [pad_idx] * (hypothesis_len_max - len(h))
                                    for h in hypothesis], dtype=torch.int64)
         hypothesis_len = torch.tensor(hypothesis_len, dtype=torch.int64)
 
-        y = torch.tensor([e[2] for e in b], dtype=torch.int64)
+        y = torch.tensor([e[4] for e in b], dtype=torch.int64)
 
         return (premise, premise_len), (hypothesis, hypothesis_len), y
 
@@ -267,6 +278,8 @@ if __name__ == '__main__':
     parser.add_argument('--pickle_path', type=str, default='./data/snli.pkl')
     parser.add_argument('--embedding_dim', type=int, default=300)
     parser.add_argument('--window_size', type=int, default=4)
+    parser.add_argument('--premise_max_len', type=int, default=83)
+    parser.add_argument('--hypothesis_max_len', type=int, default=62)
     parser.add_argument('--overwrite', type=int, default=1)
     args = parser.parse_args()
 

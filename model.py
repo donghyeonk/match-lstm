@@ -40,50 +40,76 @@ class MatchLSTM(nn.Module):
         nn.init.xavier_uniform_(self.fc.weight)
         nn.init.uniform_(self.fc.bias)
 
-    def forward(self, premise_tpl, hypothesis_tpl):
-        premise, premise_len = premise_tpl
-        hypothesis, hypothesis_len = hypothesis_tpl
+    def forward(self, premise, premise_len, hypothesis, hypothesis_len):
 
-        # (batch_size, max_len) -> (batch_size, max_len, embed_dim)
-        premise_embed = self.word_embed(premise.to(self.device))
-        hypothesis_embed = self.word_embed(hypothesis.to(self.device))
+        # (max_len, batch_size) -> (max_len, batch_size, embed_dim)
+        premise = self.word_embed(premise.to(self.device))
+        hypothesis = self.word_embed(hypothesis.to(self.device))
 
-        batch_size = premise_embed.size(0)
+        prem_max_len = premise.size(0)
+        batch_size = premise.size(1)
+
+        # TODO batch
+
+        # premise
+        h_s = torch.zeros((prem_max_len, batch_size, self.config.hidden_size),
+                          device=self.device)
+        for j, premise_j in enumerate(premise):
+            h_s_j, _ = self.lstm_prem(premise_j)
+            # TODO masking
+            h_s[j] = h_s_j
+
+        # h_m_{k-1}
+        h_m_km1 = torch.zeros((batch_size, self.config.hidden_size),
+                              device=self.device)
+        h_m_k = None
+
+        # hypothesis and matchLSTM
+        for k, hypothesis_k in enumerate(hypothesis):
+            h_t_k, _ = self.lstm_hypo(hypothesis_k)
+            # TODO masking
+
+            # Equation (6)
+            e_kj_tensor = torch.zeros((prem_max_len, batch_size),
+                                      device=self.device)
+            for j in range(prem_max_len):
+                e_kj = torch.matmul(self.w_e,
+                                    torch.tanh(self.linear_s(h_s[j]) +
+                                               self.linear_t(h_t_k) +
+                                               self.linear_m(h_m_km1)))
+                e_kj_tensor[j] = e_kj
+
+            # Equation (3)
+            alpha_kj = F.softmax(e_kj_tensor, dim=0)
 
         outputs = torch.zeros((batch_size, self.config.num_classes),
                               device=self.device)
 
         for i, (prem_emb, prem_len, hypo_emb, hypo_len) in \
-                enumerate(zip(premise_embed, premise_len,
-                              hypothesis_embed, hypothesis_len)):
+                enumerate(zip(premise, premise_len,
+                              hypothesis, hypothesis_len)):
 
             # premise
             h_s = torch.zeros((prem_len.item(), self.config.hidden_size),
                               device=self.device)
             for j, prem_j in enumerate(prem_emb[:prem_len.item()]):
                 h_s_j, _ = self.lstm_prem(torch.unsqueeze(prem_j, 0))
-                h_s[j] = h_s_j
-
-            # hypothesis
-            h_t = torch.zeros((hypo_len.item(), self.config.hidden_size),
-                              device=self.device)
-            for k, hypo_k in enumerate(hypo_emb[:hypo_len.item()]):
-                h_t_k, _ = self.lstm_hypo(torch.unsqueeze(hypo_k, 0))
-                h_t[k] = h_t_k
+                h_s[j] = h_s_j[0]
 
             # h_m_{k-1}
             h_m_km1 = torch.zeros(self.config.hidden_size, device=self.device)
             h_m_k = None
 
-            for k in range(hypo_len.item()):
-                h_t_k = h_t[k]
+            # hypothesis and matchLSTM
+            for k, hypo_k in enumerate(hypo_emb[:hypo_len.item()]):
+                h_t_k, _ = self.lstm_hypo(torch.unsqueeze(hypo_k, 0))
 
                 # Equation (6)
                 e_kj_tensor = torch.zeros(prem_len.item(), device=self.device)
                 for j in range(prem_len.item()):
                     e_kj = torch.dot(self.w_e,
                                      torch.tanh(self.linear_s(h_s[j]) +
-                                                self.linear_t(h_t_k) +
+                                                self.linear_t(h_t_k[0]) +
                                                 self.linear_m(h_m_km1)))
                     e_kj_tensor[j] = e_kj
 
@@ -98,7 +124,7 @@ class MatchLSTM(nn.Module):
                         a_k[idx] += alpha_h[idx]  # element-wise sum
 
                 # Equation (7)
-                m_k = torch.cat((a_k, h_t_k), 0)
+                m_k = torch.cat((a_k, h_t_k[0]), 0)
 
                 # Equation (8)
                 h_m_k, _ = self.lstm_match(torch.unsqueeze(m_k, 0))
@@ -107,7 +133,7 @@ class MatchLSTM(nn.Module):
 
             outputs[i] = self.fc(h_m_k[0])
 
-        return F.log_softmax(outputs, dim=1)
+        return outputs
 
     def get_req_grad_params(self, debug=False):
         print('#parameters: ', end='')

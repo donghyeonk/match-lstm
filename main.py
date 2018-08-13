@@ -3,7 +3,7 @@ from datetime import datetime
 import pickle
 import pprint
 import torch
-import torch.nn.functional as F
+import torch.nn as nn
 import torch.optim as optim
 from dataset import SNLIData
 from model import MatchLSTM
@@ -23,25 +23,26 @@ parser.add_argument('--hidden_size', type=int, default=300)
 parser.add_argument('--batch_size', type=int, default=30)
 parser.add_argument('--epochs', type=int, default=20)
 
-parser.add_argument('--log_interval', type=int, default=1)
+parser.add_argument('--log_interval', type=int, default=100)
 parser.add_argument('--yes_cuda', type=int, default=1)
 parser.add_argument('--num_workers', type=int, default=4)
 
 
-def train_epoch(device, loader, model, epoch, optimizer, config):
+def train_epoch(device, loader, model, epoch, optimizer, loss_func, config):
     model.train()
     train_loss = 0.
     example_count = 0
     correct = 0
     start_t = datetime.now()
     for batch_idx, ex in enumerate(loader):
-        target = torch.tensor(ex[2], device=device)
+        target = ex[4].to(device)
         optimizer.zero_grad()
-        output = model(ex[0], ex[1])
-        loss = F.nll_loss(output, target)
+        output = model(torch.stack(ex[0], dim=0), ex[1],
+                       torch.stack(ex[2], dim=0), ex[3])
+        loss = loss_func(output, target)
         loss.backward()
         if config.grad_max_norm > 0:
-            torch.nn.utils.clip_grad_norm_(model.parameters(),
+            torch.nn.utils.clip_grad_norm_(model.get_req_grad_params(),
                                            config.grad_max_norm)
         optimizer.step()
 
@@ -49,7 +50,7 @@ def train_epoch(device, loader, model, epoch, optimizer, config):
         train_loss += batch_loss
         example_count += len(target)
 
-        pred = output.max(1, keepdim=True)[1]
+        pred = torch.max(output, 1)[1]
         correct += pred.eq(target.view_as(pred)).sum().item()
 
         if (batch_idx + 1) % config.log_interval == 0 \
@@ -61,6 +62,7 @@ def train_epoch(device, loader, model, epoch, optimizer, config):
                         100. * example_count / len(loader.dataset),
                         batch_loss / len(output))
             print(_progress)
+
     train_loss /= len(loader.dataset)
     acc = correct / len(loader.dataset)
     print('{} Train Epoch {}, Avg. Loss: {:.6f}, Accuracy: {}/{} ({:.1f}%)'.
@@ -69,18 +71,18 @@ def train_epoch(device, loader, model, epoch, optimizer, config):
     return train_loss
 
 
-def evaluate_epoch(device, loader, model, epoch, mode):
+def evaluate_epoch(device, loader, model, epoch, loss_func, mode):
     model.eval()
     eval_loss = 0.
     correct = 0
     start_t = datetime.now()
     with torch.no_grad():
         for batch_idx, ex in enumerate(loader):
-            target = torch.tensor(ex[2], device=device)
-            output = model(ex[0], ex[1])
-            loss = F.nll_loss(output, target)
+            target = ex[4].to(device)
+            output = model(ex[0], ex[1], ex[2], ex[3])
+            loss = loss_func(output, target)
             eval_loss += len(output) * loss.item()
-            pred = output.max(1, keepdim=True)[1]
+            pred = torch.max(output, 1)[1]
             correct += pred.eq(target.view_as(pred)).sum().item()
     eval_loss /= len(loader.dataset)
     acc = correct / len(loader.dataset)
@@ -120,14 +122,18 @@ def main():
     optimizer = optim.Adam(model.get_req_grad_params(), lr=args.lr,
                            betas=(0.9, 0.999))
 
+    loss_func = nn.CrossEntropyLoss().to(device)
+
     best_loss = float('inf')
     best_acc = 0.
     best_epoch = 0
     for epoch in range(1, args.epochs + 1):
-        train_epoch(device, train_loader, model, epoch, optimizer, args)
+        train_epoch(device, train_loader, model, epoch, optimizer, loss_func,
+                    args)
 
         valid_loss, valid_acc = \
-            evaluate_epoch(device, valid_loader, model, epoch, 'Valid')
+            evaluate_epoch(device, valid_loader, model, epoch, loss_func,
+                           'Valid')
         if valid_loss < best_loss:
             best_loss = valid_loss
             best_acc = valid_acc
@@ -135,7 +141,7 @@ def main():
         print('\tLowest Valid Loss {:.6f}, Acc. {:.1f}%, Epoch {}'.
               format(best_loss, 100 * best_acc, best_epoch))
 
-        evaluate_epoch(device, test_loader, model, epoch, 'Test')
+        evaluate_epoch(device, test_loader, model, epoch, loss_func, 'Test')
 
         # TODO learning rate decay
 
