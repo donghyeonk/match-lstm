@@ -1,5 +1,8 @@
-# matchlstm
+# match-lstm
 Pytorch Implementation of "Learning Natural Language Inference with LSTM", 2016, S. Wang et al. (https://arxiv.org/pdf/1512.08849.pdf)
+
+* Python 3
+* PyTorch 0.4.1
 
 # Dataset
 * Download [snli_1.0.zip (90.2 MB)](https://nlp.stanford.edu/projects/snli/snli_1.0.zip) and uncompress it to __data/__

@@ -17,15 +17,13 @@ parser.add_argument('--num_classes', type=int, default=3)
 parser.add_argument('--lr', type=float, default=1e-3)
 parser.add_argument('--grad_max_norm', type=float, default=0)
 
-parser.add_argument('--input_size', type=int, default=300)
 parser.add_argument('--embedding_dim', type=int, default=300)
 parser.add_argument('--hidden_size', type=int, default=300)
-parser.add_argument('--num_layers', type=int, default=1)
 
 parser.add_argument('--batch_size', type=int, default=30)
 parser.add_argument('--epochs', type=int, default=20)
 
-parser.add_argument('--log_interval', type=int, default=100)
+parser.add_argument('--log_interval', type=int, default=1)
 parser.add_argument('--yes_cuda', type=int, default=1)
 parser.add_argument('--num_workers', type=int, default=4)
 
@@ -79,7 +77,7 @@ def evaluate_epoch(device, loader, model, epoch, mode):
     with torch.no_grad():
         for batch_idx, ex in enumerate(loader):
             target = torch.tensor(ex[2], device=device)
-            output = model(ex[0].to(device), ex[1].to(device))
+            output = model(ex[0], ex[1])
             loss = F.nll_loss(output, target)
             eval_loss += len(output) * loss.item()
             pred = output.max(1, keepdim=True)[1]

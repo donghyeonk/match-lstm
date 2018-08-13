@@ -8,12 +8,15 @@ class MatchLSTM(nn.Module):
         super(MatchLSTM, self).__init__()
         self.config = config
 
+        use_cuda = config.yes_cuda > 0 and torch.cuda.is_available()
+        self.device = torch.device("cuda" if use_cuda else "cpu")
+
         self.word_embed = nn.Embedding(len(word2vec), len(word2vec[0]),
                                        padding_idx=0)
         self.word_embed.weight.data.copy_(torch.from_numpy(word2vec))
         self.word_embed.weight.requires_grad = False
 
-        self.w_e = torch.zeros(config.hidden_size)
+        self.w_e = nn.Parameter(torch.Tensor(config.hidden_size))
         nn.init.uniform_(self.w_e)
 
         self.linear_s = nn.Linear(in_features=config.hidden_size,
@@ -26,8 +29,8 @@ class MatchLSTM(nn.Module):
                             out_features=config.num_classes)
         self.init_linears()
 
-        self.lstm_prem = nn.LSTMCell(config.input_size, config.hidden_size)
-        self.lstm_hypo = nn.LSTMCell(config.input_size, config.hidden_size)
+        self.lstm_prem = nn.LSTMCell(config.embedding_dim, config.hidden_size)
+        self.lstm_hypo = nn.LSTMCell(config.embedding_dim, config.hidden_size)
         self.lstm_match = nn.LSTMCell(2*config.hidden_size, config.hidden_size)
 
     def init_linears(self):
@@ -42,29 +45,41 @@ class MatchLSTM(nn.Module):
         hypothesis, hypothesis_len = hypothesis_tpl
 
         # (batch_size, max_len) -> (batch_size, max_len, embed_dim)
-        premise_embed = self.word_embed(premise)
-        hypothesis_embed = self.word_embed(hypothesis)
+        premise_embed = self.word_embed(premise.to(self.device))
+        hypothesis_embed = self.word_embed(hypothesis.to(self.device))
 
         batch_size = premise_embed.size(0)
 
-        outputs = torch.zeros((batch_size, self.config.num_classes))
+        outputs = torch.zeros((batch_size, self.config.num_classes),
+                              device=self.device)
 
         for i, (prem_emb, prem_len, hypo_emb, hypo_len) in \
                 enumerate(zip(premise_embed, premise_len,
                               hypothesis_embed, hypothesis_len)):
 
-            h_s, _ = self.lstm_prem(prem_emb[:prem_len.item()])
-            h_t, _ = self.lstm_hypo(hypo_emb[:hypo_len.item()])
+            # premise
+            h_s = torch.zeros((prem_len.item(), self.config.hidden_size),
+                              device=self.device)
+            for j, prem_j in enumerate(prem_emb[:prem_len.item()]):
+                h_s_j, _ = self.lstm_prem(torch.unsqueeze(prem_j, 0))
+                h_s[j] = h_s_j
+
+            # hypothesis
+            h_t = torch.zeros((hypo_len.item(), self.config.hidden_size),
+                              device=self.device)
+            for k, hypo_k in enumerate(hypo_emb[:hypo_len.item()]):
+                h_t_k, _ = self.lstm_hypo(torch.unsqueeze(hypo_k, 0))
+                h_t[k] = h_t_k
 
             # h_m_{k-1}
-            h_m_km1 = torch.zeros(self.config.hidden_size)
+            h_m_km1 = torch.zeros(self.config.hidden_size, device=self.device)
             h_m_k = None
 
             for k in range(hypo_len.item()):
                 h_t_k = h_t[k]
 
                 # Equation (6)
-                e_kj_tensor = torch.zeros(prem_len.item())
+                e_kj_tensor = torch.zeros(prem_len.item(), device=self.device)
                 for j in range(prem_len.item()):
                     e_kj = torch.dot(self.w_e,
                                      torch.tanh(self.linear_s(h_s[j]) +
@@ -76,7 +91,7 @@ class MatchLSTM(nn.Module):
                 alpha_kj = F.softmax(e_kj_tensor, dim=0)
 
                 # Equation (2)
-                a_k = torch.zeros(self.config.hidden_size)
+                a_k = torch.zeros(self.config.hidden_size, device=self.device)
                 for j in range(prem_len.item()):
                     alpha_h = alpha_kj[j] * h_s[j]
                     for idx in range(self.config.hidden_size):
@@ -95,7 +110,7 @@ class MatchLSTM(nn.Module):
         return F.log_softmax(outputs, dim=1)
 
     def get_req_grad_params(self, debug=False):
-        print('model parameters: ', end='')
+        print('#parameters: ', end='')
         params = list()
         total_size = 0
 
@@ -111,5 +126,5 @@ class MatchLSTM(nn.Module):
                 total_size += multiply_iter(p.size())
             if debug:
                 print(p.requires_grad, p.size())
-        print('%s' % '{:,}'.format(total_size))
+        print('{:,}'.format(total_size))
         return params

@@ -250,6 +250,7 @@ class SNLIDataset(Dataset):
 if __name__ == '__main__':
     import argparse
     from datetime import datetime
+    import os
     import pickle
     import pprint
 
@@ -271,7 +272,6 @@ if __name__ == '__main__':
 
     pprint.PrettyPrinter().pprint(args.__dict__)
 
-    import os
     if os.path.exists(args.pickle_path) and args.overwrite == 0:
         print('Found', args.pickle_path)
         with open(args.pickle_path, 'rb') as f_pkl:
