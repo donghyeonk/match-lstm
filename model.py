@@ -19,12 +19,12 @@ class MatchLSTM(nn.Module):
         self.w_e = nn.Parameter(torch.Tensor(config.hidden_size))
         nn.init.uniform_(self.w_e)
 
-        self.linear_s = nn.Linear(in_features=config.hidden_size,
-                                  out_features=config.hidden_size, bias=False)
-        self.linear_t = nn.Linear(in_features=config.hidden_size,
-                                  out_features=config.hidden_size, bias=False)
-        self.linear_m = nn.Linear(in_features=config.hidden_size,
-                                  out_features=config.hidden_size, bias=False)
+        self.w_s = nn.Linear(in_features=config.hidden_size,
+                             out_features=config.hidden_size, bias=False)
+        self.w_t = nn.Linear(in_features=config.hidden_size,
+                             out_features=config.hidden_size, bias=False)
+        self.w_m = nn.Linear(in_features=config.hidden_size,
+                             out_features=config.hidden_size, bias=False)
         self.fc = nn.Linear(in_features=config.hidden_size,
                             out_features=config.num_classes)
         self.init_linears()
@@ -34,9 +34,9 @@ class MatchLSTM(nn.Module):
         self.lstm_match = nn.LSTMCell(2*config.hidden_size, config.hidden_size)
 
     def init_linears(self):
-        nn.init.xavier_uniform_(self.linear_s.weight)
-        nn.init.xavier_uniform_(self.linear_t.weight)
-        nn.init.xavier_uniform_(self.linear_m.weight)
+        nn.init.xavier_uniform_(self.w_s.weight)
+        nn.init.xavier_uniform_(self.w_t.weight)
+        nn.init.xavier_uniform_(self.w_m.weight)
         nn.init.xavier_uniform_(self.fc.weight)
         nn.init.uniform_(self.fc.bias)
 
@@ -68,17 +68,23 @@ class MatchLSTM(nn.Module):
             # TODO masking
 
             # Equation (6)
+            # (prem_max_len, batch_size)
             e_kj = torch.zeros((prem_max_len, batch_size), device=self.device)
+            # https://discuss.pytorch.org/t/dot-product-batch-wise/9746
+            w_e_expand = \
+                self.w_e.expand(batch_size,  self.config.hidden_size)\
+                    .view(batch_size, 1, self.config.hidden_size)
             for j in range(prem_max_len):
-                for l in range(batch_size):
-                    e_kj[j][l] = \
-                        torch.dot(self.w_e,
-                                  torch.tanh(self.linear_s(h_s[j][l]) +
-                                             self.linear_t(h_t_k[l]) +
-                                             self.linear_m(h_m_km1[l])))
+                s_t_m = \
+                    torch.tanh(self.w_s(h_s[j]) + self.w_t(h_t_k) +
+                               self.w_m(h_m_km1))\
+                    .view(batch_size, self.config.hidden_size, 1)
+
+                # batch-wise dot product
+                e_kj[j] = torch.bmm(w_e_expand, s_t_m).view(batch_size)
 
             # Equation (3)
-            # (max_len, batch_size)
+            # (prem_max_len, batch_size)
             alpha_kj = F.softmax(e_kj, dim=0)
 
             # Equation (2)
@@ -90,11 +96,26 @@ class MatchLSTM(nn.Module):
                     # alpha_h
                     a_k[l] += alpha_kj[j][l] * h_s[j][l]
 
+            # a_k2 = torch.zeros((batch_size, self.config.hidden_size),
+            #                    device=self.device)
+            # for l in range(batch_size):
+            #     alpha_h_sum = \
+            #         torch.zeros(self.config.hidden_size, device=self.device)
+            #     for j in range(prem_max_len):
+            #         # alpha_h
+            #         alpha_h = \
+            #             torch.mm(alpha_kj[j].view(1, batch_size),
+            #                      h_s[j]).\
+            #             view(self.config.hidden_size)
+            #         alpha_h_sum += alpha_h
+            #     a_k2[l] = alpha_h_sum
+
             # Equation (7)
             # (batch_size, 2 * hidden_size)
             m_k = torch.cat((a_k, h_t_k), 1)
 
             # Equation (8)
+            # (batch_size, hidden_size)
             h_m_k, _ = self.lstm_match(m_k)
 
             h_m_km1 = h_m_k
