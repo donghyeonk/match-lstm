@@ -36,18 +36,16 @@ class SNLIData(object):
         self.premise_max_len = 0
         self.hypothesis_max_len = 0
 
-        self.train_data, self.valid_data, self.test_data = self.get_split_data()
+        self.train_data, self.dev_data, self.test_data = self.get_split_data()
         assert len(self.train_data) == 549367
-        assert len(self.valid_data) == 9842
+        assert len(self.dev_data) == 9842
         assert len(self.test_data) == 9824
 
         print('train', len(self.train_data))
-        print('dev  ', len(self.valid_data))
+        print('dev  ', len(self.dev_data))
         print('test ', len(self.test_data))
 
         print('#word_embeddings', len(self.word_embeds))
-        print('premise_max_len', self.premise_max_len)
-        print('hypothesis_max_len', self.hypothesis_max_len)
 
         self.word2vec = np.zeros((len(self.word_embeds),
                                   self.config.embedding_dim))
@@ -56,8 +54,10 @@ class SNLIData(object):
 
         assert len(self.word_embeds) == len(self.word2idx) == len(self.word2vec)
 
-        assert self.premise_max_len == config.premise_max_len
-        assert self.hypothesis_max_len == config.hypothesis_max_len
+        assert self.premise_max_len == config.premise_max_len, \
+            self.premise_max_len
+        assert self.hypothesis_max_len == config.hypothesis_max_len, \
+            self.hypothesis_max_len
 
     def build_word_set(self):
         def update_dict(data_path):
@@ -91,7 +91,7 @@ class SNLIData(object):
                     #         print(data_path, cols[8], premise, hypothesis)
 
         update_dict(self.config.train_data_path)
-        update_dict(self.config.valid_data_path)
+        update_dict(self.config.dev_data_path)
         update_dict(self.config.test_data_path)
 
     def get_glove(self):
@@ -106,7 +106,7 @@ class SNLIData(object):
 
     def get_split_data(self):
         train_data = self.load(self.config.train_data_path)
-        valid_data = self.load(self.config.valid_data_path)
+        dev_data = self.load(self.config.dev_data_path)
         test_data = self.load(self.config.test_data_path)
 
         print('#unseen_words', len(self.unseen_word_dict))
@@ -119,7 +119,7 @@ class SNLIData(object):
                 print('all-zero unseen word', w)
             self.word_embeds[w] = self.unseen_word_dict[w]
 
-        return train_data, valid_data, test_data
+        return train_data, dev_data, test_data
 
     def load(self, data_path):
         data = list()
@@ -204,13 +204,15 @@ class SNLIData(object):
             shuffle=shuffle,
             batch_size=batch_size,
             num_workers=num_workers,
+            collate_fn=self.batchify,
             pin_memory=pin_memory
         )
 
-        valid_loader = torch.utils.data.DataLoader(
-            SNLIDataset(self.valid_data),
+        dev_loader = torch.utils.data.DataLoader(
+            SNLIDataset(self.dev_data),
             batch_size=batch_size,
             num_workers=num_workers,
+            collate_fn=self.batchify,
             pin_memory=pin_memory
         )
 
@@ -218,9 +220,18 @@ class SNLIData(object):
             SNLIDataset(self.test_data),
             batch_size=batch_size,
             num_workers=num_workers,
+            collate_fn=self.batchify,
             pin_memory=pin_memory
         )
-        return train_loader, valid_loader, test_loader
+        return train_loader, dev_loader, test_loader
+
+    def batchify(self, b):
+        prem = torch.tensor(np.array([e[0] for e in b]), dtype=torch.int64)
+        prem_len = torch.tensor([e[1] for e in b], dtype=torch.int64)
+        hypo = torch.tensor(np.array([e[2] for e in b]), dtype=torch.int64)
+        hypo_len = torch.tensor([e[3] for e in b], dtype=torch.int64)
+        y = torch.tensor([e[4] for e in b], dtype=torch.int64)
+        return prem, prem_len, hypo, hypo_len, y
 
 
 class SNLIDataset(Dataset):
@@ -244,13 +255,13 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--train_data_path', type=str,
                         default='./data/snli_1.0_train.txt')
-    parser.add_argument('--valid_data_path', type=str,
+    parser.add_argument('--dev_data_path', type=str,
                         default='./data/snli_1.0_dev.txt')
     parser.add_argument('--test_data_path', type=str,
                         default='./data/snli_1.0_test.txt')
     parser.add_argument('--glove_path', type=str,
                         default=os.path.join(os.path.expanduser('~'),
-                                             '/common/glove.840B.300d.txt'))
+                                             'common/glove.840B.300d.txt'))
     parser.add_argument('--pickle_path', type=str, default='./data/snli.pkl')
     parser.add_argument('--embedding_dim', type=int, default=300)
     parser.add_argument('--window_size', type=int, default=4)
