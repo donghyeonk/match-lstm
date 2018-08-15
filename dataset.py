@@ -26,7 +26,7 @@ class SNLIData(object):
 
         self.word_embeds = self.get_glove()
         self.word_embeds[self.pad] = [0.] * self.config.embedding_dim
-        self.word_embeds[self.null_word] = [0.] * self.config.embedding_dim
+        self.word_embeds[self.null_word] = [1.] * self.config.embedding_dim
         print('SNLI - GloVe intersection size', len(self.word_embeds),
               '({:.1f}%)'.format(100*len(self.word_embeds)/len(self.word2idx)))
 
