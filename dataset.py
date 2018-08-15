@@ -226,10 +226,16 @@ class SNLIData(object):
         return train_loader, dev_loader, test_loader
 
     def batchify(self, b):
-        prem = torch.tensor(np.array([e[0] for e in b]), dtype=torch.int64)
         prem_len = torch.tensor([e[1] for e in b], dtype=torch.int64)
-        hypo = torch.tensor(np.array([e[2] for e in b]), dtype=torch.int64)
+        prem_max_len = prem_len.max().item()
+        prem = torch.from_numpy(
+            np.transpose(np.array([e[0][:prem_max_len] for e in b])))
+
         hypo_len = torch.tensor([e[3] for e in b], dtype=torch.int64)
+        hypo_max_len = hypo_len.max().item()
+        hypo = torch.from_numpy(
+            np.transpose(np.array([e[2][:hypo_max_len] for e in b])))
+
         y = torch.tensor([e[4] for e in b], dtype=torch.int64)
         return prem, prem_len, hypo, hypo_len, y
 

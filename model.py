@@ -43,18 +43,12 @@ class MatchLSTM(nn.Module):
         nn.init.uniform_(self.fc.bias)
 
     def forward(self, premise, premise_len, hypothesis, hypothesis_len):
-        premise = premise.transpose(0, 1)
-        hypothesis = hypothesis.transpose(0, 1)
-
         # (max_len, batch_size) -> (max_len, batch_size, embed_dim)
         premise = self.word_embed(premise.to(self.device))
         hypothesis = self.word_embed(hypothesis.to(self.device))
 
         prem_max_len = premise.size(0)
         batch_size = premise.size(1)
-
-        prem_batch_max_len = premise_len.max().item()
-        hypo_batch_max_len = hypothesis_len.max().item()
 
         # premise
         h_s = torch.zeros((prem_max_len, batch_size, self.config.hidden_size),
@@ -64,8 +58,6 @@ class MatchLSTM(nn.Module):
         c_s_j = torch.zeros((batch_size, self.config.hidden_size),
                             device=self.device)
         for j, premise_j in enumerate(premise):
-            if j == prem_batch_max_len:
-                break
             h_s_j, c_s_j = self.lstm_prem(premise_j, hx=(h_s_j, c_s_j))
             # TODO masking
             h_s[j] = h_s_j
@@ -81,8 +73,6 @@ class MatchLSTM(nn.Module):
         c_t_k = torch.zeros((batch_size, self.config.hidden_size),
                             device=self.device)
         for k, hypothesis_k in enumerate(hypothesis):
-            if k == hypo_batch_max_len:
-                break
             h_t_k, c_t_k = self.lstm_hypo(hypothesis_k, hx=(h_t_k, c_t_k))
             # TODO masking
 
