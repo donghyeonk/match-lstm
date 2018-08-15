@@ -33,7 +33,7 @@ class MatchLSTM(nn.Module):
         self.init_linears()
 
         self.lstm_prem = nn.LSTM(config.embedding_dim, config.hidden_size)
-        self.lstm_hypo = nn.LSTMCell(config.embedding_dim, config.hidden_size)
+        self.lstm_hypo = nn.LSTM(config.embedding_dim, config.hidden_size)
         self.lstm_match = nn.LSTMCell(2*config.hidden_size, config.hidden_size)
 
     def init_linears(self):
@@ -45,46 +45,56 @@ class MatchLSTM(nn.Module):
 
     def forward(self, premise, premise_len, hypothesis, hypothesis_len):
         # premise
+        premise = premise.to(self.device)
         prem_max_len = premise.size(0)
-        premise_len, perm_idxes = premise_len.sort(dim=0, descending=True)
-        _, idx_unsort = torch.sort(perm_idxes, dim=0, descending=False)
-        premise = premise[:, perm_idxes]
+        premise_len, p_idxes = premise_len.sort(dim=0, descending=True)
+        _, p_idx_unsort = torch.sort(p_idxes, dim=0, descending=False)
+        premise = premise[:, p_idxes]
         # (max_len, batch_size) -> (max_len, batch_size, embed_dim)
-        premise = self.word_embed(premise.to(self.device))
+        premise = self.word_embed(premise)
         packed_premise = pack_padded_sequence(premise, premise_len)
         h_s, (_, _) = self.lstm_prem(packed_premise)
         h_s, _ = pad_packed_sequence(h_s)
-        h_s = h_s[:, idx_unsort]
-        premise_len = premise_len[idx_unsort]
+        h_s = h_s[:, p_idx_unsort]
+        premise_len = premise_len[p_idx_unsort]
 
-        # hypothesis and matchLSTM
-        hypothesis = self.word_embed(hypothesis.to(self.device))
+        # hypothesis
+        hypothesis = hypothesis.to(self.device)
+        hypothesis_max_len = hypothesis.size(0)
+        hypothesis_len, h_idxes = hypothesis_len.sort(dim=0, descending=True)
+        _, h_idx_unsort = torch.sort(h_idxes, dim=0, descending=False)
+        hypothesis = hypothesis[:, h_idxes]
+        # (max_len, batch_size) -> (max_len, batch_size, embed_dim)
+        hypothesis = self.word_embed(hypothesis)
+        packed_hypothesis = pack_padded_sequence(hypothesis, hypothesis_len)
+        h_t, (_, _) = self.lstm_hypo(packed_hypothesis)
+        h_t, _ = pad_packed_sequence(h_t)
+        h_t = h_t[:, h_idx_unsort]
+        # hypothesis_len = hypothesis_len[h_idx_unsort]
 
+        # matchLSTM
         batch_size = premise.size(1)
-        h_m_km1 = torch.zeros((batch_size, self.config.hidden_size),
-                              device=self.device)
-        h_t_k = torch.zeros((batch_size, self.config.hidden_size),
+        h_m_k = torch.zeros((batch_size, self.config.hidden_size),
                             device=self.device)
-        c_t_k = torch.zeros((batch_size, self.config.hidden_size),
+        c_m_k = torch.zeros((batch_size, self.config.hidden_size),
                             device=self.device)
-        for k, hypothesis_k in enumerate(hypothesis):
-            h_t_k, c_t_k = self.lstm_hypo(hypothesis_k, hx=(h_t_k, c_t_k))
-            # TODO masking
+        for k in range(hypothesis_max_len):
+            h_t_k = h_t[k]
 
             # Equation (6)
             # (prem_max_len, batch_size)
             e_kj = torch.zeros((prem_max_len, batch_size), device=self.device)
-            # https://discuss.pytorch.org/t/dot-product-batch-wise/9746
             w_e_expand = \
                 self.w_e.expand(batch_size, self.config.hidden_size)\
                     .view(batch_size, 1, self.config.hidden_size)
             for j in range(prem_max_len):
                 s_t_m = \
                     torch.tanh(self.w_s(h_s[j]) + self.w_t(h_t_k) +
-                               self.w_m(h_m_km1))\
+                               self.w_m(h_m_k))\
                     .view(batch_size, self.config.hidden_size, 1)
 
                 # batch-wise dot product
+                # https://discuss.pytorch.org/t/dot-product-batch-wise/9746
                 e_kj[j] = torch.bmm(w_e_expand, s_t_m).view(batch_size)
 
             # Equation (3)
@@ -100,31 +110,15 @@ class MatchLSTM(nn.Module):
                     # alpha_h
                     a_k[l] += alpha_kj[j][l] * h_s[j][l]
 
-            # a_k2 = torch.zeros((batch_size, self.config.hidden_size),
-            #                    device=self.device)
-            # for l in range(batch_size):
-            #     alpha_h_sum = \
-            #         torch.zeros(self.config.hidden_size, device=self.device)
-            #     for j in range(prem_max_len):
-            #         # alpha_h
-            #         alpha_h = \
-            #             torch.mm(alpha_kj[j].view(1, batch_size),
-            #                      h_s[j]).\
-            #             view(self.config.hidden_size)
-            #         alpha_h_sum += alpha_h
-            #     a_k2[l] = alpha_h_sum
-
             # Equation (7)
             # (batch_size, 2 * hidden_size)
             m_k = torch.cat((a_k, h_t_k), 1)
 
             # Equation (8)
             # (batch_size, hidden_size)
-            h_m_k, _ = self.lstm_match(m_k)
+            h_m_k, c_m_k = self.lstm_match(m_k, (h_m_k, c_m_k))
 
-            h_m_km1 = h_m_k
-
-        return self.fc(h_m_km1)
+        return self.fc(h_m_k)
 
     def get_req_grad_params(self, debug=False):
         print('#parameters: ', end='')
