@@ -43,6 +43,8 @@ class MatchLSTM(nn.Module):
         nn.init.uniform_(self.fc.bias)
 
     def forward(self, premise, premise_len, hypothesis, hypothesis_len):
+        premise = premise.transpose(0, 1)
+        hypothesis = hypothesis.transpose(0, 1)
 
         # (max_len, batch_size) -> (max_len, batch_size, embed_dim)
         premise = self.word_embed(premise.to(self.device))
@@ -51,11 +53,20 @@ class MatchLSTM(nn.Module):
         prem_max_len = premise.size(0)
         batch_size = premise.size(1)
 
+        prem_batch_max_len = premise_len.max().item()
+        hypo_batch_max_len = hypothesis_len.max().item()
+
         # premise
         h_s = torch.zeros((prem_max_len, batch_size, self.config.hidden_size),
                           device=self.device)
+        h_s_j = torch.zeros((batch_size, self.config.hidden_size),
+                            device=self.device)
+        c_s_j = torch.zeros((batch_size, self.config.hidden_size),
+                            device=self.device)
         for j, premise_j in enumerate(premise):
-            h_s_j, _ = self.lstm_prem(premise_j)
+            if j == prem_batch_max_len:
+                break
+            h_s_j, c_s_j = self.lstm_prem(premise_j, hx=(h_s_j, c_s_j))
             # TODO masking
             h_s[j] = h_s_j
 
@@ -65,8 +76,14 @@ class MatchLSTM(nn.Module):
         h_m_k = None
 
         # hypothesis and matchLSTM
+        h_t_k = torch.zeros((batch_size, self.config.hidden_size),
+                            device=self.device)
+        c_t_k = torch.zeros((batch_size, self.config.hidden_size),
+                            device=self.device)
         for k, hypothesis_k in enumerate(hypothesis):
-            h_t_k, _ = self.lstm_hypo(hypothesis_k)
+            if k == hypo_batch_max_len:
+                break
+            h_t_k, c_t_k = self.lstm_hypo(hypothesis_k, hx=(h_t_k, c_t_k))
             # TODO masking
 
             # Equation (6)
@@ -74,7 +91,7 @@ class MatchLSTM(nn.Module):
             e_kj = torch.zeros((prem_max_len, batch_size), device=self.device)
             # https://discuss.pytorch.org/t/dot-product-batch-wise/9746
             w_e_expand = \
-                self.w_e.expand(batch_size,  self.config.hidden_size)\
+                self.w_e.expand(batch_size, self.config.hidden_size)\
                     .view(batch_size, 1, self.config.hidden_size)
             for j in range(prem_max_len):
                 s_t_m = \

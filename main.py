@@ -23,7 +23,7 @@ parser.add_argument('--hidden_size', type=int, default=300)
 parser.add_argument('--batch_size', type=int, default=30)
 parser.add_argument('--epochs', type=int, default=20)
 
-parser.add_argument('--log_interval', type=int, default=100)
+parser.add_argument('--log_interval', type=int, default=10)
 parser.add_argument('--yes_cuda', type=int, default=1)
 parser.add_argument('--num_workers', type=int, default=4)
 
@@ -37,8 +37,7 @@ def train_epoch(device, loader, model, epoch, optimizer, loss_func, config):
     for batch_idx, ex in enumerate(loader):
         target = ex[4].to(device)
         optimizer.zero_grad()
-        output = model(torch.stack(ex[0], dim=0), ex[1],
-                       torch.stack(ex[2], dim=0), ex[3])
+        output = model(ex[0], ex[1], ex[2], ex[3])
         loss = loss_func(output, target)
         loss.backward()
         if config.grad_max_norm > 0:
