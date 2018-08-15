@@ -11,6 +11,8 @@ class MatchLSTM(nn.Module):
         use_cuda = config.yes_cuda > 0 and torch.cuda.is_available()
         self.device = torch.device("cuda" if use_cuda else "cpu")
 
+        print('word2vec', word2vec.shape)
+        assert len(word2vec[0]) == config.embedding_dim
         self.word_embed = nn.Embedding(len(word2vec), len(word2vec[0]),
                                        padding_idx=0)
         self.word_embed.weight.data.copy_(torch.from_numpy(word2vec))

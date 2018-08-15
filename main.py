@@ -114,7 +114,7 @@ def main():
         snli_dataset.get_dataloaders(batch_size=args.batch_size,
                                      num_workers=args.num_workers,
                                      pin_memory=use_cuda)
-    print(len(train_loader.dataset), len(valid_loader.dataset),
+    print('#examples', len(train_loader.dataset), len(valid_loader.dataset),
           len(test_loader.dataset))
 
     model = MatchLSTM(args, snli_dataset.word2vec).to(device)

@@ -204,7 +204,6 @@ class SNLIData(object):
             shuffle=shuffle,
             batch_size=batch_size,
             num_workers=num_workers,
-            # collate_fn=self.batchify,
             pin_memory=pin_memory
         )
 
@@ -212,7 +211,6 @@ class SNLIData(object):
             SNLIDataset(self.valid_data),
             batch_size=batch_size,
             num_workers=num_workers,
-            # collate_fn=self.batchify,
             pin_memory=pin_memory
         )
 
@@ -220,31 +218,9 @@ class SNLIData(object):
             SNLIDataset(self.test_data),
             batch_size=batch_size,
             num_workers=num_workers,
-            # collate_fn=self.batchify,
             pin_memory=pin_memory
         )
         return train_loader, valid_loader, test_loader
-
-    def batchify(self, b):
-        pad_idx = self.word2idx[self.pad]
-
-        premise = [e[0] for e in b]
-        premise_len = [e[1] for e in b]
-        premise_len_max = max(premise_len)
-        premise = torch.tensor([p + [pad_idx] * (premise_len_max - len(p))
-                                for p in premise], dtype=torch.int64)
-        premise_len = torch.tensor(premise_len, dtype=torch.int64)
-
-        hypothesis = [e[2] for e in b]
-        hypothesis_len = [e[3] for e in b]
-        hypothesis_len_max = max(hypothesis_len)
-        hypothesis = torch.tensor([h + [pad_idx] * (hypothesis_len_max - len(h))
-                                   for h in hypothesis], dtype=torch.int64)
-        hypothesis_len = torch.tensor(hypothesis_len, dtype=torch.int64)
-
-        y = torch.tensor([e[4] for e in b], dtype=torch.int64)
-
-        return (premise, premise_len), (hypothesis, hypothesis_len), y
 
 
 class SNLIDataset(Dataset):
@@ -265,7 +241,6 @@ if __name__ == '__main__':
     import pickle
     import pprint
 
-    home_dir = os.path.expanduser('~')
     parser = argparse.ArgumentParser()
     parser.add_argument('--train_data_path', type=str,
                         default='./data/snli_1.0_train.txt')
@@ -274,7 +249,8 @@ if __name__ == '__main__':
     parser.add_argument('--test_data_path', type=str,
                         default='./data/snli_1.0_test.txt')
     parser.add_argument('--glove_path', type=str,
-                        default=home_dir + '/common/glove/glove.840B.300d.txt')
+                        default=os.path.join(os.path.expanduser('~'),
+                                             '/common/glove.840B.300d.txt'))
     parser.add_argument('--pickle_path', type=str, default='./data/snli.pkl')
     parser.add_argument('--embedding_dim', type=int, default=300)
     parser.add_argument('--window_size', type=int, default=4)
