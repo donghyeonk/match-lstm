@@ -118,6 +118,8 @@ class MatchLSTM(nn.Module):
             # (batch_size, hidden_size)
             h_m_k, c_m_k = self.lstm_match(m_k, (h_m_k, c_m_k))
 
+            # TODO handle hypothesis' variable length
+
         return self.fc(h_m_k)
 
     def get_req_grad_params(self, debug=False):

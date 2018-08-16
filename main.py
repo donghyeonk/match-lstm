@@ -15,15 +15,16 @@ parser.add_argument('--data_path', type=str, default='./data/snli.pkl')
 parser.add_argument('--num_classes', type=int, default=3)
 
 parser.add_argument('--lr', type=float, default=1e-3)
+parser.add_argument('--lr_decay', type=float, default=0.95)
 parser.add_argument('--grad_max_norm', type=float, default=0)
 
 parser.add_argument('--embedding_dim', type=int, default=300)
 parser.add_argument('--hidden_size', type=int, default=300)
 
 parser.add_argument('--batch_size', type=int, default=30)
-parser.add_argument('--epochs', type=int, default=20)
+parser.add_argument('--epochs', type=int, default=10)
 
-parser.add_argument('--log_interval', type=int, default=10)
+parser.add_argument('--log_interval', type=int, default=20)
 parser.add_argument('--yes_cuda', type=int, default=1)
 parser.add_argument('--num_workers', type=int, default=4)
 
@@ -142,7 +143,11 @@ def main():
 
         evaluate_epoch(device, test_loader, model, epoch, loss_func, 'Test')
 
-        # TODO learning rate decay
+        # learning rate decay
+        for param_group in optimizer.param_groups:
+            print('lr: {:.6f} -> {:.6f}'
+                  .format(param_group['lr'], param_group['lr'] * args.lr_decay))
+            param_group['lr'] *= args.lr_decay
 
 
 if __name__ == '__main__':
