@@ -24,7 +24,7 @@ parser.add_argument('--hidden_size', type=int, default=300)
 parser.add_argument('--batch_size', type=int, default=30)
 parser.add_argument('--epochs', type=int, default=10)
 
-parser.add_argument('--log_interval', type=int, default=20)
+parser.add_argument('--log_interval', type=int, default=100)
 parser.add_argument('--yes_cuda', type=int, default=1)
 parser.add_argument('--num_workers', type=int, default=4)
 

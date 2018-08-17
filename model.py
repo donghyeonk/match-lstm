@@ -53,6 +53,7 @@ class MatchLSTM(nn.Module):
         # (max_len, batch_size) -> (max_len, batch_size, embed_dim)
         premise = self.word_embed(premise)
         packed_premise = pack_padded_sequence(premise, premise_len)
+        # (max_len, batch_size, hidden_size)
         h_s, (_, _) = self.lstm_prem(packed_premise)
         h_s, _ = pad_packed_sequence(h_s)
         h_s = h_s[:, p_idx_unsort]
@@ -67,6 +68,7 @@ class MatchLSTM(nn.Module):
         # (max_len, batch_size) -> (max_len, batch_size, embed_dim)
         hypothesis = self.word_embed(hypothesis)
         packed_hypothesis = pack_padded_sequence(hypothesis, hypothesis_len)
+        # (max_len, batch_size, hidden_size)
         h_t, (_, _) = self.lstm_hypo(packed_hypothesis)
         h_t, _ = pad_packed_sequence(h_t)
         h_t = h_t[:, h_idx_unsort]
@@ -106,9 +108,9 @@ class MatchLSTM(nn.Module):
             a_k = torch.zeros((batch_size, self.config.hidden_size),
                               device=self.device)
             for l in range(batch_size):
-                for j in range(premise_len[l].item()):
-                    # alpha_h
-                    a_k[l] += alpha_kj[j][l] * h_s[j][l]
+                # alpha_h
+                a_k[l] += torch.matmul(alpha_kj[:, l].view(1, prem_max_len),
+                                       h_s[:, l]).view(self.config.hidden_size)
 
             # Equation (7)
             # (batch_size, 2 * hidden_size)
