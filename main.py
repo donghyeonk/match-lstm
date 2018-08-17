@@ -16,10 +16,13 @@ parser.add_argument('--num_classes', type=int, default=3)
 
 parser.add_argument('--lr', type=float, default=1e-3)
 parser.add_argument('--lr_decay', type=float, default=0.95)
-parser.add_argument('--grad_max_norm', type=float, default=0)
+parser.add_argument('--grad_max_norm', type=float, default=5)
 
 parser.add_argument('--embedding_dim', type=int, default=300)
 parser.add_argument('--hidden_size', type=int, default=300)
+
+parser.add_argument('--dropout_rnn', type=float, default=0.5)
+parser.add_argument('--dropout_fc', type=float, default=0.5)
 
 parser.add_argument('--batch_size', type=int, default=30)
 parser.add_argument('--epochs', type=int, default=10)
@@ -42,7 +45,7 @@ def train_epoch(device, loader, model, epoch, optimizer, loss_func, config):
         loss = loss_func(output, target)
         loss.backward()
         if config.grad_max_norm > 0:
-            torch.nn.utils.clip_grad_norm_(model.get_req_grad_params(),
+            torch.nn.utils.clip_grad_norm_(model.req_grad_params,
                                            config.grad_max_norm)
         optimizer.step()
 
@@ -119,7 +122,7 @@ def main():
 
     model = MatchLSTM(args, snli_dataset.word2vec).to(device)
 
-    optimizer = optim.Adam(model.get_req_grad_params(), lr=args.lr,
+    optimizer = optim.Adam(model.req_grad_params, lr=args.lr,
                            betas=(0.9, 0.999))
 
     loss_func = nn.CrossEntropyLoss().to(device)

@@ -36,6 +36,10 @@ class MatchLSTM(nn.Module):
         self.lstm_hypo = nn.LSTM(config.embedding_dim, config.hidden_size)
         self.lstm_match = nn.LSTMCell(2*config.hidden_size, config.hidden_size)
 
+        self.dropout_fc = nn.Dropout(p=config.dropout_fc)
+
+        self.req_grad_params = self.get_req_grad_params()
+
     def init_linears(self):
         nn.init.xavier_uniform_(self.w_s.weight)
         nn.init.xavier_uniform_(self.w_t.weight)
@@ -57,7 +61,7 @@ class MatchLSTM(nn.Module):
         h_s, (_, _) = self.lstm_prem(packed_premise)
         h_s, _ = pad_packed_sequence(h_s)
         h_s = h_s[:, p_idx_unsort]
-        premise_len = premise_len[p_idx_unsort]
+        # premise_len = premise_len[p_idx_unsort]
 
         # hypothesis
         hypothesis = hypothesis.to(self.device)
@@ -122,7 +126,7 @@ class MatchLSTM(nn.Module):
 
             # TODO handle hypothesis' variable length
 
-        return self.fc(h_m_k)
+        return self.fc(self.dropout_fc(h_m_k))
 
     def get_req_grad_params(self, debug=False):
         print('#parameters: ', end='')
