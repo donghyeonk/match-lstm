@@ -76,7 +76,7 @@ class MatchLSTM(nn.Module):
         h_t, (_, _) = self.lstm_hypo(packed_hypothesis)
         h_t, _ = pad_packed_sequence(h_t)
         h_t = h_t[:, h_idx_unsort]
-        # hypothesis_len = hypothesis_len[h_idx_unsort]
+        hypothesis_len = hypothesis_len[h_idx_unsort]
 
         # matchLSTM
         batch_size = premise.size(1)
@@ -84,6 +84,9 @@ class MatchLSTM(nn.Module):
                             device=self.device)
         c_m_k = torch.zeros((batch_size, self.config.hidden_size),
                             device=self.device)
+        h_last = torch.zeros((batch_size, self.config.hidden_size),
+                             device=self.device)
+
         for k in range(hypothesis_max_len):
             h_t_k = h_t[k]
 
@@ -102,6 +105,13 @@ class MatchLSTM(nn.Module):
                 # batch-wise dot product
                 # https://discuss.pytorch.org/t/dot-product-batch-wise/9746
                 e_kj[j] = torch.bmm(w_e_expand, s_t_m).view(batch_size)
+            # TODO handle variable length sequences: premise and hypothesis
+
+            # w_e_expand2 = self.w_e.expand(batch_size, prem_max_len,
+            #                               self.config.hidden_size)
+            # s_t_m2 = \
+            #     torch.tanh(self.w_s(h_s) + self.w_t(h_t_k) +
+            #                self.w_m(h_m_k))
 
             # Equation (3)
             # (prem_max_len, batch_size)
@@ -115,6 +125,7 @@ class MatchLSTM(nn.Module):
                 # alpha_h
                 a_k[l] += torch.matmul(alpha_kj[:, l].view(1, prem_max_len),
                                        h_s[:, l]).view(self.config.hidden_size)
+                # TODO handle variable length sequences: premise
 
             # Equation (7)
             # (batch_size, 2 * hidden_size)
@@ -124,9 +135,13 @@ class MatchLSTM(nn.Module):
             # (batch_size, hidden_size)
             h_m_k, c_m_k = self.lstm_match(m_k, (h_m_k, c_m_k))
 
-            # TODO handle hypothesis' variable length
+            # handle variable length sequences: hypothesis
+            # (batch_size)
+            for batch_idx, hl in enumerate(hypothesis_len):
+                if k + 1 == hl:
+                    h_last[batch_idx] = h_m_k[batch_idx]
 
-        return self.fc(self.dropout_fc(h_m_k))
+        return self.fc(self.dropout_fc(h_last))
 
     def get_req_grad_params(self, debug=False):
         print('#parameters: ', end='')

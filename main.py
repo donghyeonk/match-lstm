@@ -123,7 +123,7 @@ def main():
     model = MatchLSTM(args, snli_dataset.word2vec).to(device)
 
     optimizer = optim.Adam(model.req_grad_params, lr=args.lr,
-                           betas=(0.9, 0.999))
+                           betas=(0.9, 0.999), amsgrad=True)
 
     loss_func = nn.CrossEntropyLoss().to(device)
 
