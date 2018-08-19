@@ -61,7 +61,9 @@ class MatchLSTM(nn.Module):
         h_s, (_, _) = self.lstm_prem(packed_premise)
         h_s, _ = pad_packed_sequence(h_s)
         h_s = h_s[:, p_idx_unsort]
-        # premise_len = premise_len[p_idx_unsort]
+        premise_len = premise_len[p_idx_unsort]
+        for batch_idx, pl in enumerate(premise_len):
+            h_s[pl:, batch_idx] *= 0.
 
         # hypothesis
         hypothesis = hypothesis.to(self.device)
@@ -77,6 +79,8 @@ class MatchLSTM(nn.Module):
         h_t, _ = pad_packed_sequence(h_t)
         h_t = h_t[:, h_idx_unsort]
         hypothesis_len = hypothesis_len[h_idx_unsort]
+        for batch_idx, hl in enumerate(hypothesis_len):
+            h_t[hl:, batch_idx] *= 0.
 
         # matchLSTM
         batch_size = premise.size(1)
@@ -105,7 +109,6 @@ class MatchLSTM(nn.Module):
                 # batch-wise dot product
                 # https://discuss.pytorch.org/t/dot-product-batch-wise/9746
                 e_kj[j] = torch.bmm(w_e_expand, s_t_m).view(batch_size)
-            # TODO handle variable length sequences: premise and hypothesis
 
             # w_e_expand2 = self.w_e.expand(batch_size, prem_max_len,
             #                               self.config.hidden_size)
@@ -125,7 +128,6 @@ class MatchLSTM(nn.Module):
                 # alpha_h
                 a_k[l] += torch.matmul(alpha_kj[:, l].view(1, prem_max_len),
                                        h_s[:, l]).view(self.config.hidden_size)
-                # TODO handle variable length sequences: premise
 
             # Equation (7)
             # (batch_size, 2 * hidden_size)
