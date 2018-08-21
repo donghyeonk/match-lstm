@@ -36,7 +36,8 @@ class MatchLSTM(nn.Module):
         self.lstm_hypo = nn.LSTM(config.embedding_dim, config.hidden_size)
         self.lstm_match = nn.LSTMCell(2*config.hidden_size, config.hidden_size)
 
-        self.dropout_fc = nn.Dropout(p=config.dropout_fc)
+        if config.dropout_fc > 0:
+            self.dropout_fc = nn.Dropout(p=config.dropout_fc)
 
         self.req_grad_params = self.get_req_grad_params()
 
@@ -110,24 +111,15 @@ class MatchLSTM(nn.Module):
                 # https://discuss.pytorch.org/t/dot-product-batch-wise/9746
                 e_kj[j] = torch.bmm(w_e_expand, s_t_m).view(batch_size)
 
-            # w_e_expand2 = self.w_e.expand(batch_size, prem_max_len,
-            #                               self.config.hidden_size)
-            # s_t_m2 = \
-            #     torch.tanh(self.w_s(h_s) + self.w_t(h_t_k) +
-            #                self.w_m(h_m_k))
-
             # Equation (3)
             # (prem_max_len, batch_size)
             alpha_kj = F.softmax(e_kj, dim=0)
 
             # Equation (2)
             # (batch_size, hidden_size)
-            a_k = torch.zeros((batch_size, self.config.hidden_size),
-                              device=self.device)
-            for l in range(batch_size):
-                # alpha_h
-                a_k[l] += torch.matmul(alpha_kj[:, l].view(1, prem_max_len),
-                                       h_s[:, l]).view(self.config.hidden_size)
+            a_k = torch.bmm(alpha_kj.t().view(batch_size, 1, prem_max_len),
+                            h_s.permute(1, 0, 2)).view(batch_size,
+                                                       self.config.hidden_size)
 
             # Equation (7)
             # (batch_size, 2 * hidden_size)
@@ -143,7 +135,10 @@ class MatchLSTM(nn.Module):
                 if k + 1 == hl:
                     h_last[batch_idx] = h_m_k[batch_idx]
 
-        return self.fc(self.dropout_fc(h_last))
+        if self.config.dropout_fc > 0:
+            h_last = self.dropout_fc(h_last)
+
+        return self.fc(h_last)
 
     def get_req_grad_params(self, debug=False):
         print('#parameters: ', end='')

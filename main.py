@@ -16,13 +16,12 @@ parser.add_argument('--num_classes', type=int, default=3)
 
 parser.add_argument('--lr', type=float, default=1e-3)
 parser.add_argument('--lr_decay', type=float, default=0.95)
-parser.add_argument('--grad_max_norm', type=float, default=5)
+parser.add_argument('--grad_max_norm', type=float, default=0)
 
 parser.add_argument('--embedding_dim', type=int, default=300)
 parser.add_argument('--hidden_size', type=int, default=300)
 
-parser.add_argument('--dropout_rnn', type=float, default=0.5)
-parser.add_argument('--dropout_fc', type=float, default=0.5)
+parser.add_argument('--dropout_fc', type=float, default=0)
 
 parser.add_argument('--batch_size', type=int, default=30)
 parser.add_argument('--epochs', type=int, default=10)
