@@ -18,6 +18,7 @@ class MatchLSTM(nn.Module):
                                        padding_idx=0)
         self.word_embed.weight.data.copy_(torch.from_numpy(word2vec))
         self.word_embed.weight.requires_grad = False
+        # TODO emb_partial update
 
         self.w_e = nn.Parameter(torch.Tensor(config.hidden_size))
         nn.init.uniform_(self.w_e)
@@ -34,9 +35,10 @@ class MatchLSTM(nn.Module):
 
         self.lstm_prem = nn.LSTM(config.embedding_dim, config.hidden_size)
         self.lstm_hypo = nn.LSTM(config.embedding_dim, config.hidden_size)
-        self.lstm_match = nn.LSTMCell(2*config.hidden_size, config.hidden_size)
+        self.lstm_match = nn.LSTMCell(2 * config.hidden_size,
+                                      config.hidden_size)
 
-        if config.dropout_fc > 0:
+        if config.dropout_fc > 0.:
             self.dropout_fc = nn.Dropout(p=config.dropout_fc)
 
         self.req_grad_params = self.get_req_grad_params()
@@ -56,7 +58,12 @@ class MatchLSTM(nn.Module):
         _, p_idx_unsort = torch.sort(p_idxes, dim=0, descending=False)
         premise = premise[:, p_idxes]
         # (max_len, batch_size) -> (max_len, batch_size, embed_dim)
-        premise = self.word_embed(premise)
+        if self.config.dropout_emb > 0. and self.training:
+            premise = F.dropout(self.word_embed(premise),
+                                p=self.config.dropout_emb,
+                                training=self.training)
+        else:
+            premise = self.word_embed(premise)
         packed_premise = pack_padded_sequence(premise, premise_len)
         # (max_len, batch_size, hidden_size)
         h_s, (_, _) = self.lstm_prem(packed_premise)
@@ -73,7 +80,12 @@ class MatchLSTM(nn.Module):
         _, h_idx_unsort = torch.sort(h_idxes, dim=0, descending=False)
         hypothesis = hypothesis[:, h_idxes]
         # (max_len, batch_size) -> (max_len, batch_size, embed_dim)
-        hypothesis = self.word_embed(hypothesis)
+        if self.config.dropout_emb > 0. and self.training:
+            hypothesis = F.dropout(self.word_embed(hypothesis),
+                                   p=self.config.dropout_emb,
+                                   training=self.training)
+        else:
+            hypothesis = self.word_embed(hypothesis)
         packed_hypothesis = pack_padded_sequence(hypothesis, hypothesis_len)
         # (max_len, batch_size, hidden_size)
         h_t, (_, _) = self.lstm_hypo(packed_hypothesis)

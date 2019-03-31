@@ -8,25 +8,27 @@ import torch.optim as optim
 from dataset import SNLIData
 from model import MatchLSTM
 
-
+# Ref.
+# https://github.com/shuohangwang/SeqMatchSeq/blob/master/main/main.lua
 parser = argparse.ArgumentParser()
-parser.add_argument('--seed', type=int, default=2018)
+parser.add_argument('--seed', type=int, default=2019)
 parser.add_argument('--data_path', type=str, default='./data/snli.pkl')
 parser.add_argument('--num_classes', type=int, default=3)
 
 parser.add_argument('--lr', type=float, default=1e-3)
 parser.add_argument('--lr_decay', type=float, default=0.95)
-parser.add_argument('--grad_max_norm', type=float, default=0)
+parser.add_argument('--grad_max_norm', type=float, default=0.)  #
 
 parser.add_argument('--embedding_dim', type=int, default=300)
 parser.add_argument('--hidden_size', type=int, default=300)
 
-parser.add_argument('--dropout_fc', type=float, default=0)
+parser.add_argument('--dropout_fc', type=float, default=0.)  #
+parser.add_argument('--dropout_emb', type=float, default=0.3)
 
 parser.add_argument('--batch_size', type=int, default=30)
 parser.add_argument('--epochs', type=int, default=10)
 
-parser.add_argument('--log_interval', type=int, default=100)
+parser.add_argument('--log_interval', type=int, default=200)
 parser.add_argument('--yes_cuda', type=int, default=1)
 parser.add_argument('--num_workers', type=int, default=4)
 
