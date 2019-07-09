@@ -27,8 +27,10 @@ class SNLIData(object):
         self.word_embeds = self.get_glove()
         self.word_embeds[self.pad] = [0.] * self.config.embedding_dim
         self.word_embeds[self.null_word] = [1.] * self.config.embedding_dim
-        print('SNLI - GloVe intersection size', len(self.word_embeds),
-              '({:.1f}%)'.format(100*len(self.word_embeds)/len(self.word2idx)))
+        print('SNLI - GloVe intersection ratio', len(self.word_embeds),
+              '{}/{} ({:.1f}%)'.format(
+                  len(self.word_embeds), len(self.word2idx),
+                  100 * len(self.word_embeds) / len(self.word2idx)))
 
         self.unseen_word_dict = dict()
         self.unseen_word_count_dict = dict()
@@ -41,9 +43,9 @@ class SNLIData(object):
         assert len(self.dev_data) == 9842
         assert len(self.test_data) == 9824
 
-        print('train', len(self.train_data))
-        print('dev  ', len(self.dev_data))
-        print('test ', len(self.test_data))
+        print('#train', len(self.train_data))
+        print('#dev  ', len(self.dev_data))
+        print('#test ', len(self.test_data))
 
         print('#word_embeddings', len(self.word_embeds))
 
@@ -66,7 +68,7 @@ class SNLIData(object):
                     # skip the first line
                     if idx == 0:
                         continue
-                    cols = line.rstrip().split('\t')
+                    cols = line[:-1].split('\t')
                     # print(cols)
 
                     if cols[0] == '-':
@@ -76,7 +78,7 @@ class SNLIData(object):
                                if w != '(' and w != ')']
                     hypothesis = [w for w in cols[2].split(' ')
                                   if w != '(' and w != ')']
-                    for w in premise+hypothesis:
+                    for w in premise + hypothesis:
                         if w not in self.word2idx:
                             idx = len(self.word2idx)
                             self.word2idx[w] = idx
@@ -152,7 +154,7 @@ class SNLIData(object):
                 if idx == 0:
                     continue
 
-                cols = line.rstrip().split('\t')
+                cols = line[:-1].split('\t')
                 # print(cols)
 
                 if cols[0] == '-':
@@ -196,6 +198,27 @@ class SNLIData(object):
                 #     print(idx + 1)
 
         return data
+
+    def get_train_dev_loader(self, batch_size=32, shuffle=True, num_workers=4,
+                             pin_memory=True):
+        train_loader = torch.utils.data.DataLoader(
+            SNLIDataset(self.train_data),
+            shuffle=shuffle,
+            batch_size=batch_size,
+            num_workers=num_workers,
+            collate_fn=self.batchify,
+            pin_memory=pin_memory
+        )
+
+        dev_loader = torch.utils.data.DataLoader(
+            SNLIDataset(self.dev_data),
+            batch_size=batch_size,
+            num_workers=num_workers,
+            collate_fn=self.batchify,
+            pin_memory=pin_memory
+        )
+
+        return train_loader, dev_loader
 
     def get_dataloaders(self, batch_size=32, shuffle=True, num_workers=4,
                         pin_memory=True):
