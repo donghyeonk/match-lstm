@@ -27,8 +27,7 @@ class SNLIData(object):
         self.word_embeds = self.get_glove()
         self.word_embeds[self.pad] = [0.] * self.config.embedding_dim
         self.word_embeds[self.null_word] = [1.] * self.config.embedding_dim
-        print('SNLI - GloVe intersection ratio', len(self.word_embeds),
-              '{}/{} ({:.1f}%)'.format(
+        print('SNLI - GloVe intersection ratio', '{}/{} ({:.1f}%)'.format(
                   len(self.word_embeds), len(self.word2idx),
                   100 * len(self.word_embeds) / len(self.word2idx)))
 
@@ -116,7 +115,7 @@ class SNLIData(object):
         # an approximation of the embedding of an unseen word
         for w in self.unseen_word_dict:
             if w in self.unseen_word_count_dict:
-                self.unseen_word_dict[w] /= self.unseen_word_count_dict[w]
+                self.unseen_word_dict[w] /= self.unseen_word_count_dict[w] + 1
             else:
                 print('all-zero unseen word', w)
             self.word_embeds[w] = self.unseen_word_dict[w]
