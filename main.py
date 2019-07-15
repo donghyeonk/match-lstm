@@ -35,14 +35,21 @@ parser.add_argument('--log_interval', type=int, default=500)
 parser.add_argument('--yes_cuda', type=int, default=1)
 parser.add_argument('--num_workers', type=int, default=4)
 parser.add_argument('--num_processes', type=int, default=2)
+parser.add_argument('--test', type=int, default=0)
 
 
 def train_mp(rank, device, snli_dataset, model, loss_func, config):
     torch.manual_seed(config.seed + rank)
 
-    train_loader, dev_loader = snli_dataset.get_train_dev_loader(
-        batch_size=config.batch_size, num_workers=config.num_workers,
-        pin_memory='cuda' == device.type)
+    test_loader = None
+    if config.test == 0:
+        train_loader, dev_loader = snli_dataset.get_train_dev_loader(
+            batch_size=config.batch_size, num_workers=config.num_workers,
+            pin_memory='cuda' == device.type)
+    else:
+        train_loader, dev_loader, test_loader = snli_dataset.get_dataloaders(
+            batch_size=config.batch_size, num_workers=config.num_workers,
+            pin_memory='cuda' == device.type)
 
     optimizer = optim.Adam(model.req_grad_params, lr=config.lr,
                            betas=(0.9, 0.999), amsgrad=True)
@@ -74,6 +81,9 @@ def train_mp(rank, device, snli_dataset, model, loss_func, config):
                   .format(param_group['lr'],
                           param_group['lr'] * config.lr_decay))
             param_group['lr'] *= config.lr_decay
+
+        if config.test != 0:
+            evaluate_epoch(device, test_loader, model, epoch, loss_func, 'Test')
 
 
 def train_epoch(device, loader, model, epoch, optimizer, loss_func, config):
