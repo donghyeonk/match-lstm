@@ -6,7 +6,7 @@ Pytorch Implementation of "Learning Natural Language Inference with LSTM", 2016,
 * [Python 3](https://www.python.org/downloads/)
 
 ## Requirements
-* [PyTorch 1.1.0](https://pytorch.org)
+* [PyTorch 1.2.0](https://pytorch.org)
 * [numpy](https://www.numpy.org)
 
 ## Dataset
